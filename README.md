@@ -169,7 +169,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For support, email support@yourdomain.com or open an issue in the GitHub repository.
+For support, email cdr@cdr2.com or open an issue in the GitHub repository.
 
 ---
-Made with ❤️ by [Your Name]
+Made with ❤️ by [Christopher Robison](mailto:cdr@cdr2.com)
