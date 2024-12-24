@@ -1,0 +1,1 @@
+ 0 0 * * *   /home/cdr/cdr2/chat/backup-chats.sh >> /tmp/backup-chats.log 2>&1

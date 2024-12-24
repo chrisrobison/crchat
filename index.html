@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<head>
+    <meta charset="utf-8">
+    <title>Real-time Chat</title>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@100..800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl7CVkqkXNQ/ZH/XLlvWZOJyj7Yy7tcenmpD1ypASozpmT/E0iPtmFIB46ZmdtAc9eNBvH0H/ZpiBw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        :root {
+            --background-color: #fff;
+            --text-color: #000;
+            --header-background: #666;
+            --header-color: #fff;
+            --chat-background: #f5f5f5;
+            --message-background: #e3e3e3;
+            --my-message-background: #007bff;
+            --my-message-color: #fff;
+            box-sizing: border-box;
+            font-family: "Lexend", "Helvetica Neue", "Helvetica", sans-serif;
+            font-size: 18px;
+            color-scheme: dark;
+        }
+
+        body {
+            background-color: var(--background-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        header, footer {
+            background-color: var(--header-background);
+            color: var(--header-color);
+            width: 100%;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            flex: 1;
+            width: 100%;
+            max-width: 800px;
+            padding: 1rem;
+        }
+
+        .chat-container {
+            background: var(--chat-background);
+            width: 100%;
+            height: 70vh;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem 0;
+        }
+
+        .message {
+            margin: 0.5rem 0;
+            padding: 0.75rem;
+            border-radius: 1rem;
+            max-width: 70%;
+            word-wrap: break-word;
+            background: var(--message-background);
+        }
+
+        .message.mine {
+            margin-left: auto;
+            background: var(--my-message-background);
+            color: var(--my-message-color);
+        }
+
+        .chat-input {
+            display: flex;
+            padding: 1rem;
+            gap: 0.5rem;
+            background: #444;
+            border-top: 1px solid #ddd;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 1em;
+            font-size: 1rem;
+        }
+
+        .chat-input button {
+            padding: 0.5rem 1rem;
+            background: var(--my-message-background);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 500 500'%3E%3Ctext style='font-size: 36; font-family: Roboto; white-space: pre;' x='-4063' y='-49.205'%3Ebackground-image: url('data:image/svg+xml,%253Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 384 512'%253E%253C!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2024 Fonticons, Inc.--%253E%253Cpath d='M214.6 41.4c-12.5-12.5-32.8-12.5-45.3 0l-160 160c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0L160 141.2 160 448c0 17.7 14.3 32 32 32s32-14.3 32-32l0-306.7L329.4 246.6c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3l-160-160z'/%253E%253C/svg%253E');%3C/text%3E%3Cpath d='M 260.375 54.642 C 247.875 42.142 227.575 42.142 215.075 54.642 L 55.075 214.642 C 42.575 227.142 42.575 247.442 55.075 259.942 C 67.575 272.442 87.875 272.442 100.375 259.942 L 205.775 154.442 L 205.775 461.242 C 205.775 478.942 220.075 493.242 237.775 493.242 C 255.475 493.242 269.775 478.942 269.775 461.242 L 269.775 154.542 L 375.175 259.842 C 387.675 272.342 407.975 272.342 420.475 259.842 C 432.975 247.342 432.975 227.042 420.475 214.542 L 260.475 54.542 L 260.375 54.642 Z' style='fill: rgb(255, 255, 255);'%3E%3C/path%3E%3C/svg%3E");
+            background-size: 36px 36px;
+            background-repeat: no-repeat;
+            background-position: 60% 50%;
+            width: 48px;
+            height: 48px;
+            
+        }
+
+        .chat-input button:hover {
+            opacity: 0.9;
+        }
+
+        .username-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .username-form {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .username-form input {
+            margin: 1rem 0;
+            padding: 0.5rem;
+            width: 200px;
+            border-radius: 1em;
+        }
+        .connection-status {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+            background: #eee;
+            font-size: 0.8rem;
+        }
+        .connection-status.connected {
+            background: #90EE90;
+        }
+        .connection-status.disconnected {
+            background: #FFB6C1;
+        }
+        .message img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 4px;
+            margin: 8px 0;
+        }
+        .paste-indicator {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            display: none;
+        }
+        .message-wrap {
+            position: relative;
+            display:flex;
+            align-items: center;
+            padding-left: 1em;
+            padding-right: 1em;
+
+        }
+        body {
+        background: #222; 
+        color: #eee;
+        }
+        #messages {
+            background-color: #111;
+        }
+        .message {
+            position: relative;
+            display:flex;
+            background: #333;
+            color:#fff;
+            border-radius: .4em;
+            margin-left: 1.5em;
+            margin-right: 1.5em;
+        }
+        .system {
+            padding: 0.25em;
+            background: #0003;
+        }
+        .system .message {
+            background: transparent;
+            color: #0f06;
+            font-weight: 300;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 0;
+            margin: 0;
+            
+        }
+        .system .message:before {
+            content: "i";
+            border-radius: 50%;
+            color: #fff;
+            background-color: #0052bd;
+            width: 1em;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 1.1em;
+            width: 1.1em;
+            font-family: serif;
+            font-size: 12px;
+            margin-top: 3px;
+            left: -4px;
+            position: relative;
+        }
+        .message-wrap {
+            display:flex;
+            align-items: flex-start;
+        }
+        .message-wrap.mine {
+            flex-direction: row-reverse;
+            align-items: flex-end;
+        }
+.message:after {
+    content: '◥';
+    position: absolute;
+    left: -12px;
+    right: unset;
+    color: #333;
+    top: 20px;
+}
+.message.mine:after {
+    content: '◣';
+    font-size: 32px;
+    position: absolute;
+    left: unset;
+    right: -22px;
+    bottom: 0;
+    top: unset;
+    color: #007bfe;
+}
+
+.message-timestamp {
+    font-size: 12px;
+    color: #ccc;
+    font-family: monospace;
+    position: absolute;
+    right: 0.5em;
+    top: -0.5em;
+    width: 5em;
+    opacity: 0;
+    background: #fff3;
+    border-radius: 1em;
+    text-align: center;
+    transition: all 300ms linear;
+}
+.message-wrap:hover .message-timestamp {
+    opacity: 0.5;
+}
+div.system {
+    padding-left: 1em;
+    padding-right: 1em;
+}
+div.system .message:after {
+    content:'';
+}
+h1 {
+    margin: 0;
+}
+
+.message-avatar {
+    text-align: center;
+    overflow: hidden;
+}
+
+img.profilepic {
+    border-radius: 50%;
+}
+
+.message-user {
+    font-size: 12px;
+    display: flex;
+    font-weight: 300;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+    .chat-container {
+    display: flex;
+    flex-direction: row;
+    background: var(--chat-background);
+    width: 100%;
+    height: 70vh;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid #333;
+}
+
+.users-sidebar {
+    width: 200px;
+    background: #1a1a1a;
+    overflow-y: auto;
+    padding: 1rem;
+}
+
+.users-header {
+    color: #888;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #333;
+    font-weight: 300;
+}
+
+.users-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.user-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.user-item:hover {
+    background: #252525;
+}
+
+.user-item .profilepic {
+    width: 24px;
+    height: 24px;
+}
+
+.user-item .username {
+    color: #eee;
+    font-size: 0.9rem;
+    font-weight: 300;
+}
+</style>
+</head>
+<body>
+<div id="connectionStatus" class="connection-status">Connecting...</div>
+<header>
+    <h1>Real-time Chat</h1>
+</header>
+<main>
+    <div class="chat-container">
+        <div class="users-sidebar">
+            <div class="users-header">Online Users</div>
+            <div class="users-list" id="usersList"></div>
+        </div>
+        <div class="chat-main">
+            <div class="chat-messages" id="messages"></div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="Type a message...">
+                <button id="sendButton"></button>
+            </div>
+        </div>
+        <div class="chat-messages" id="messages"></div>
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Type a message...">
+            <button id="sendButton"></button>
+        </div>
+    </div>
+</main>
+<div class="username-modal" id="usernameModal">
+    <div class="username-form">
+        <h2>Enter your username</h2>
+        <input type="text" id="usernameInput" placeholder="Username">
+        <button id="joinButton">Join Chat</button>
+    </div>
+</div>
+<div id="pasteIndicator" class="paste-indicator">Processing image...</div>
+<script>
+// Web Worker for handling WebSocket connection
+const workerCode = `
+    let ws;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_DELAY = 5000;
+
+    function connect(url) {
+        ws = new WebSocket(url);
+
+        ws.onopen = () => {
+            reconnectAttempts = 0;
+            postMessage({ type: 'connected' });
+        };
+
+        ws.onmessage = (event) => {
+            postMessage({ type: 'message', data: JSON.parse(event.data) });
+        };
+
+        ws.onclose = () => {
+            postMessage({ type: 'disconnected' });
+            const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), MAX_RECONNECT_DELAY);
+            reconnectAttempts++;
+            setTimeout(() => connect(url), delay);
+        };
+    }
+
+    self.onmessage = (event) => {
+        const { type, data } = event.data;
+
+        switch(type) {
+            case 'connect':
+                connect(data.url);
+                break;
+            case 'send':
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(data.message));
+                }
+                break;
+        }
+    };
+`;
+
+(function() {
+    const $ = str => document.querySelector(str);
+    const $$ = str => document.querySelectorAll(str);
+
+    const app = {
+        data: {
+            messages: [],
+            users: [],
+            username: '',
+            connected: false
+        },
+        state: {
+            loaded: false,
+            identified: false
+        },
+        worker: null,
+        async init() {
+            // Try to restore username from localStorage
+            let savedUsername = localStorage.getItem('chatUsername') || profile.Login;
+            if (savedUsername) {
+                app.data.username = savedUsername;
+                app.data.me = savedUsername;
+                $('#usernameModal').style.display = 'none';
+            }
+
+            // Create Web Worker from blob
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const workerUrl = URL.createObjectURL(blob);
+            app.worker = new Worker(workerUrl);
+
+            app.worker.onmessage = (event) => {
+                const { type, data } = event.data;
+                switch(type) {
+                    case 'connected':
+                        app.data.connected = true;
+                        app.updateConnectionStatus('Connected');
+                        // Re-identify if we have a username
+                        if (app.data.username && !app.state.identified) {
+                            app.identify();
+                        }
+                        break;
+                    case 'disconnected':
+                        app.data.connected = false;
+                        app.state.identified = false;
+                        app.updateConnectionStatus('Disconnected - Reconnecting...');
+                        break;
+                    case 'message':
+                        app.receiveMessage(data);
+                        break;
+                }
+            };
+
+            $('#sendButton').addEventListener('click', () => app.sendMessage());
+            $('#messageInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') app.sendMessage();
+            });
+            $('#joinButton').addEventListener('click', () => app.join());
+            document.addEventListener('paste', (e) => app.handlePaste(e));
+
+            // Initial connection
+            app.connect();
+            app.join(app.data.username);
+            app.state.loaded = true;
+        },
+        handlePaste(e) {
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+
+            for (const item of items) {
+                if (item.type.indexOf('image') === 0) {
+                    e.preventDefault();
+
+                    // Show processing indicator
+                    $('#pasteIndicator').style.display = 'block';
+
+                    const blob = item.getAsFile();
+                    app.processImage(blob);
+                    break;
+                }
+            }
+        },
+
+        processImage(blob) {
+            // Check for GIF
+            if (blob.type === 'image/gif') {
+                // For GIFs, use FileReader directly to preserve animation
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const base64Data = e.target.result; // This will be the full animated GIF
+                    app.sendImage(base64Data);
+                    $('#pasteIndicator').style.display = 'none';
+                };
+                reader.readAsDataURL(blob);
+                return;
+            }
+
+            // For non-GIF images, continue with canvas processing
+            const img = new Image();
+            const url = URL.createObjectURL(blob);
+
+            img.onload = () => {
+                // Create canvas
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // Calculate dimensions (optionally resize large images)
+                let width = img.width;
+                let height = img.height;
+                const maxDimension = 1200;
+
+                if (width > maxDimension || height > maxDimension) {
+                    if (width > height) {
+                        height = (height / width) * maxDimension;
+                        width = maxDimension;
+                    } else {
+                        width = (width / height) * maxDimension;
+                        height = maxDimension;
+                    }
+                }
+
+                // Set canvas size and draw image
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Convert to base64
+                const base64Data = canvas.toDataURL('image/jpeg', 0.85);
+
+                // Clean up
+                URL.revokeObjectURL(url);
+
+                // Send the image
+                app.sendImage(base64Data);
+
+                // Hide processing indicator
+                $('#pasteIndicator').style.display = 'none';
+            };
+
+            img.src = url;
+        },
+        sendImage(base64Data) {
+            if (app.data.connected && app.state.identified) {
+                const messageData = {
+                    type: 'chat',
+                    messageType: 'image',
+                    username: app.data.username,
+                    content: base64Data,
+                    timestamp: new Date().toISOString()
+                };
+
+                app.worker.postMessage({
+                    type: 'send',
+                    data: { message: messageData }
+                });
+            }
+        },
+        async getUserProfile(user) {
+            if (app.data.users[user]) return app.data.users[user];
+            let resp = await fetch(`/portal/api.php?type=loginProfile&user=${user}`);
+            let profile = await resp.json();
+
+            if (profile.status && profile.status==="error") {
+                if (profile.redirect) {
+                    document.location.href = profile.redirect + '?url=/chat/';
+                }
+            } else {
+                app.data.users[user] = profile;
+            } 
+            return profile; 
+        },
+       connect() {
+            app.worker.postMessage({
+                type: 'connect',
+                data: { url: 'wss://cdr2.com:3000' }
+            });
+        },
+        updateConnectionStatus(status) {
+            const statusDiv = $('#connectionStatus');
+            statusDiv.textContent = status;
+            statusDiv.className = 'connection-status ' +
+                (status === 'Connected' ? 'connected' : 'disconnected');
+        },
+        identify() {
+            app.worker.postMessage({
+                type: 'send',
+                data: {
+                    message: {
+                        type: 'join',
+                        username: app.data.username,
+                        timestamp: new Date().toISOString()
+                    }
+                }
+            });
+            app.state.identified = true;
+        },
+        join(user) {
+            let username;
+            if (user) {
+                username = user;
+            } else {
+                username = $('#usernameInput').value.trim();
+            }
+            if (username) {
+                app.data.username = username;
+                localStorage.setItem('chatUsername', username);
+                $('#usernameModal').style.display = 'none';
+
+                if (app.data.connected) {
+                    app.identify();
+                }
+            }
+        },
+        sendMessage() {
+            const input = $('#messageInput');
+            const message = input.value.trim();
+
+            if (message && app.data.connected && app.state.identified) {
+                const messageData = {
+                    type: 'chat',
+                    username: app.data.username,
+                    content: message,
+                    timestamp: new Date().toISOString()
+                };
+
+                app.worker.postMessage({
+                    type: 'send',
+                    data: { message: messageData }
+                });
+
+                input.value = '';
+            }
+        },
+        updateUserList(users) {
+            const usersList = $('#usersList');
+            usersList.innerHTML = '';
+
+            users.sort().forEach(async username => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'user-item';
+
+                // Get or fetch user profile
+                if (!app.data.users[username]) {
+                    app.data.users[username] = await app.getUserProfile(username);
+                }
+                const profile = app.data.users[username];
+
+                userDiv.innerHTML = `
+                    ${profile.Picture ? `<img class="profilepic" src="${profile.Picture}">` : ''}
+                    <span class="username">${username}</span>
+                `;
+
+                usersList.appendChild(userDiv);
+            });
+        },
+        async receiveMessage(message, historical=false) {
+            if (message.type === 'users') {
+                app.updateUserList(message.content);
+            } else if (message.type === 'history') {
+                // Load historical messages
+                message.content.sort((a, b) => {
+                    const atime = new Date(a.timestamp);
+                    const btime = new Date(b.timestamp);
+                    if ( atime < btime) {
+                        return -1;
+                    } else if ( atime > btime) {
+                        return 1;
+                    } else {
+                        return 0;
+                    }
+                });
+                message.content.forEach(historicalMessage => {
+                    app.receiveMessage(historicalMessage, true);
+                });
+            } else if (message.type === 'system') {
+                if (!historical) {
+                    await app.displayMessage(message, 'system');
+                    app.data.messages.push(message);
+                }
+            } else {
+                await app.displayMessage(message);
+                app.data.messages.push(message);
+            }
+        },
+        async displayMessage(message, msgtype) {
+            const messagesDiv = $('#messages');
+
+            let tpl = `
+    <div class="message-user">
+        <div class="message-avatar">%%Picture%%</div>
+        <div class="message-user">%%Login%%</div>
+    </div>
+    <div class="message%%mine%%">
+        <div class="message-content">%%Message%%</div>
+    </div>
+    <div class="message-timestamp">%%ShowDate%%</div>`;
+            if (!app.data.users[message.username]) {
+                app.data.users[message.username] = await app.getUserProfile(message.username);
+            }
+            
+            let msg = message;
+            msg.Picture = (app.data.users[message.username].Picture) ? `<img class="profilepic" width="32" src="${app.data.users[message.username].Picture}">` : '';
+            msg.Login = message.username;
+            msg.mine = (message.username == app.data.me.Login) ? ' mine' : '';
+            msg.Message = message.content;
+            
+            if (message.messageType === 'image') {
+                msg.Message = `
+                    <img src="${message.content}" alt="Shared image">
+                `;
+            } 
+            let msgdate = new Date(message.timestamp);
+            msg.ShowDate =  app.cleanDate(msgdate);
+            
+            let html = tpl.replace(/%%(.+?)%%/g, function(m, p1) {
+                console.dir(m);
+                console.dir(p1);
+                if (msg[p1]) {
+                    return msg[p1];
+                } else {
+                    return '';
+                }
+            });
+            const messageWrap = document.createElement('div');
+
+            messageWrap.className = 'message-wrap' + msg.mine;
+            if (msgtype) messageWrap.classList.add(msgtype);
+            messageWrap.innerHTML = html;
+
+            messagesDiv.appendChild(messageWrap);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        },
+        cleanDate(when) {
+            // Grab current date to compare against
+            let now = new Date();
+            let out = when.toISOString();
+
+            let ampm = ['am', 'pm'], yr, mo, hr, hour, min, day, xm;
+            let diff = now.getTime() - when.getTime();
+
+            // First check for messges within the past day
+            if (diff < 86400000) {
+                hr = when.getHours();
+                min = when.getMinutes();
+                hour = hr % 12;
+                xm = ampm[Math.floor(hr / 12)];
+                if (min < 10) {
+                    min = '0' + min;
+                }
+                out = `${hour}:${min}${xm}`;
+            } else if (diff < 604800000) {
+                // Now the past week
+                let days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+                day = days[when.getDay()];
+                hr = when.getHours();
+                min = when.getMinutes();
+                hour = hr % 12;
+                xm = ampm[Math.floor(hr / 12)];
+                if (min < 10) {
+                    min = '0' + min;
+                }
+                out = `${day}. ${hour}:${min}${xm}`;
+            } else {
+                // otherwise just give the entire date and time
+                mo = when.getMonth() + 1;
+                day = when.getDate();
+                yr = when.getFullYear();
+                hr = when.getHours();
+                min = when.getMinutes();
+                hour = hr % 12;
+                xm = ampm[Math.floor(hr / 12)];
+                if (min < 10) {
+                    min = '0' + min;
+                }
+                if (day < 10) day = '0' + day;
+
+                out = `${mo}/${day}/${yr} ${hour}:${min}${xm}`;
+  
+            }
+            return out;
+        }
+    };
+
+    window.app = app;
+    app.init();
+})();
+</script>
+</body>
+</html>

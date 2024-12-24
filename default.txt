@@ -1,0 +1,1 @@
+{"type":"chat","username":"cdr","content":"🎈🎉Welcome to the ✨brand new, 🎈lightweight and 🔒secure chat server with zero external dependencies and 💯% awesomeness! Play nice and pretend your Mom reads everything here 🤣 Enjoy!","timestamp":"2024-12-23T16:57:43.430Z"}
