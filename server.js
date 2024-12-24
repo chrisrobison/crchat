@@ -293,7 +293,7 @@ setInterval(() => {
 
 // API endpoints for chat history
 app.get('/api/chat/history', (req, res) => {
-    const count = parseInt(req.query.count) || 50;
+    const count = parseInt(req.query.count) || 100;
     res.json(chatHistory.getRecent(count));
 });
 
@@ -306,6 +306,11 @@ app.get('/health', (req, res) => {
         messageCount: chatHistory.messages.length
     });
 });
+
+app.get('/users', (req, res) => {
+    res.status(200).json(app.getOnlineUsers());
+});
+
 
 app.post('/upload', upload.single('file'), (req, res) => {
     try {
