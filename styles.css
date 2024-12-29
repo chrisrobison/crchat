@@ -1,3 +1,6 @@
+* {
+    box-sizing: border-box;
+}
 :root {
     --background-color: #fff;
     --text-color: #000;
@@ -79,7 +82,7 @@ main {
     display: flex;
     padding: 1rem;
     gap: 0.5rem;
-    background: #444;
+    background: #222;
     border-top: 1px solid #ddd;
 }
 
@@ -109,6 +112,81 @@ main {
 
 .chat-input button:hover {
     opacity: 0.9;
+}
+
+.registration-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+#registrationForm {
+    display: flex;
+    flex-direction: column;
+    padding: 1em;
+    margin: 0 auto;
+    background: #333;
+    max-width: 600px;
+}
+
+#regisrationForm input {
+    font-size: 18px;
+}
+
+#registrationForm label {
+    width: 5em;
+    font-size: 12px;
+    font-weight: 300;
+    display: block;
+}
+
+.registration-form h2 {
+    margin: 0;
+    background: #05a;
+    font-weight: 400;
+    color: #ccc;
+    padding:  0.25em;
+}
+
+.registration-form {
+    max-width: 600px;
+    margin: 1em auto;
+}
+
+.registration-form input {
+    font-size: 18px;
+    width: 30.3em;
+    background: #111;
+    padding: 0.5em;
+    border: 1px inset #888;
+}
+
+.registration-form button {
+    font-size: 22px;
+    padding: 0.25em;
+    background: #05a;
+    margin-top: 0.5em;
+    border: 0;
+    border-radius: 1em;
+}
+.align-right {
+    text-align: right;
+}
+.small {
+    font-size: 14px;
+}
+#registrationForm > div {
+    margin-bottom: 0.5em;
+}
+
+#registrationForm button {
+    width: 5em;
 }
 
 .username-modal {
@@ -142,14 +220,19 @@ main {
     right: 1rem;
     padding: 0.5rem;
     border-radius: 4px;
-    background: #eee;
     font-size: 0.8rem;
+    height: 2em;
+    width: 2em;
+    background-repeat: no-repeat;
+    background-size: contain;
+    color: #ccc;
 }
 .connection-status.connected {
-    background: #90EE90;
+    background-image: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='utf-8'%3F%3E%3C!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools --%3E%3Csvg width='800px' height='800px' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 13.6493C3 16.6044 5.41766 19 8.4 19L16.5 19C18.9853 19 21 16.9839 21 14.4969C21 12.6503 19.8893 10.9449 18.3 10.25C18.1317 7.32251 15.684 5 12.6893 5C10.3514 5 8.34694 6.48637 7.5 8.5C4.8 8.9375 3 11.2001 3 13.6493Z' stroke='%23ccc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .connection-status.disconnected {
-    background: #FFB6C1;
+    background-color: #c00;
+    background-image: url("data:image/svg+xml,%3C%3Fxml version='1.0' encoding='utf-8'%3F%3E%3C!-- Uploaded to: SVG Repo, www.svgrepo.com, Generator: SVG Repo Mixer Tools --%3E%3Csvg width='800px' height='800px' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M18.5221 18.5208C17.9141 18.8274 17.2272 19 16.5 19L8.4 19C5.41766 19 3 16.6044 3 13.6493C3 11.2001 4.8 8.9375 7.5 8.5C7.59659 8.27034 7.70825 8.04754 7.83373 7.83303M10.9021 5.30015C11.4635 5.10615 12.0645 5 12.6893 5C15.684 5 18.1317 7.32251 18.3 10.25C19.8893 10.9449 21 12.6503 21 14.4969C21 14.7799 20.9739 15.0568 20.924 15.3253M3 3L21 21' stroke='%23fcc' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .message img {
     max-width: 100%;
@@ -191,6 +274,10 @@ color: #eee;
     margin-left: 1.5em;
     margin-right: 1.5em;
 }
+.message-content {
+    width: 100%;
+    overflow: hidden;
+}
 .system {
     padding: 0.25em;
     background: #0003;
@@ -231,7 +318,7 @@ color: #eee;
     align-items: flex-end;
 }
 .message:after {
-    content: '◥';
+    content: 'â—¥';
     position: absolute;
     left: -12px;
     right: unset;
@@ -239,7 +326,7 @@ color: #eee;
     top: 20px;
 }
 .message.mine:after {
-    content: '◣';
+    content: 'â—£';
     font-size: 32px;
     position: absolute;
     left: unset;
@@ -388,4 +475,64 @@ img.profilepic {
     max-width: 100%;
     border-radius: 4px;
     margin: 8px 0;
+}
+
+.jumping-dots span {
+  position: relative;
+  margin-left: auto;
+  margin-right: auto;
+  animation: jump 1s infinite;
+  background-color: #ccc;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 3px;
+  display: inline-block;
+}
+
+.jumping-dots .dot-1 {
+  animation-delay: 200ms;
+}
+
+.jumping-dots .dot-2 {
+  animation-delay: 400ms;
+}
+
+.jumping-dots .dot-3 {
+  animation-delay: 600ms;
+}
+
+@keyframes jump {
+  0% {
+    bottom: 0px;
+  }
+  20% {
+    bottom: 5px;
+  }
+  40% {
+    bottom: 0px;
+  }
+}
+
+@media only screen and (max-width: 640px) {
+    .users-sidebar {
+        display: none;
+    }
+    main {
+        padding: 0;
+        height: 100svh;
+    }
+    .chat-messages {
+        padding: 0;
+        width: 100vw;
+    }
+    .chat-main {
+        border: 0;
+    }
+    body {
+        height: 100svh;
+    }
+    .chat-container {
+        height: 100svh;
+    }
 }

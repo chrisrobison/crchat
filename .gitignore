@@ -3,3 +3,4 @@ uploads
 chats
 channels
 package-lock.json
+chat_history.jsonl

@@ -6,17 +6,47 @@ const path = require('path');
 const multer = require('multer');
 const mime = require('mime-types');
 const crypto = require('crypto');
+const UserManager = require('./user-manager');
+const bodyParser = require('body-parser');
+const session = require('express-session');
 
 // Initialize express app
 const app = express();
 
+// Initialize user manager
+app.use(bodyParser.json());
+app.use(session({
+    secret: crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+        secure: true,
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    }
+}));
+
+// Initialize user manager when starting the server
+(async () => {
+    try {
+        await userManager.initialize();
+        console.log('User management system initialized');
+    } catch (error) {
+        console.error('Failed to initialize user management:', error);
+        process.exit(1);
+    }
+})();
+
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, 'uploads/');
+        if (!req.session.userId) {
+            cb(new Error('Not authenticated'));
+            return;
+        }
+        const uploadPath = userManager.getUserUploadPath(req.session.userId);
+        cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
-        // Generate unique filename with original extension
         const ext = mime.extension(file.mimetype);
         crypto.randomBytes(16, (err, raw) => {
             cb(null, raw.toString('hex') + Date.now() + '.' + ext);
@@ -76,7 +106,7 @@ function broadcastUserList() {
 
 // Chat history management
 const chatHistory = {
-    filename: 'chat_history.jsonl',
+    filename: '/home/cdr/cdr2/crchat/chat_history.jsonl',
     maxMessages: 1000, // Keep last 1000 messages
     messages: [],
 
@@ -137,19 +167,34 @@ function broadcast(message, sender) {
 }
 
 // Handle new WebSocket connections
-wss.on('connection', (ws) => {
-    console.log('New client connected');
+wss.on('connection', (ws, req) => {
+    console.log('Client connected');
+    const sessionId = req.session?.userId;
+    
+    if (!sessionId) {
+        ws.send(JSON.stringify({
+            type: 'system',
+            content: 'Please log in to join the chat.',
+            timestamp: new Date().toISOString()
+        }));
+        ws.close();
+        return;
+    }
 
-    // Set a temporary identifier for the connection
-    clients.set(ws, null);
+    try {
+        const profile = await userManager.getUserProfile(sessionId);
+        clients.set(ws, profile.Login); // Use Login to match client expectations
+        
+        ws.send(JSON.stringify({
+            type: 'system',
+            content: 'Connected to chat server.',
+            timestamp: new Date().toISOString()
+        }));
 
-    // Send welcome message
-    ws.send(JSON.stringify({
-        type: 'system',
-        content: 'Connected to chat server.',
-        timestamp: new Date().toISOString()
-    }));
-
+    } catch (error) {
+        console.error('Error getting user profile:', error);
+        ws.close();
+    }
     // Handle incoming messages
     ws.on('message', (data) => {
         try {
@@ -185,6 +230,18 @@ wss.on('connection', (ws) => {
                     }));
 
                     broadcastUserList();
+
+                    break;
+                case 'status':
+                    const statusMessage = {
+                        type: 'system',
+                        messageType: 'status',
+                        username: message.username,
+                        content: message.content,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    broadcast(statusMessage, ws);
 
                     break;
                 case 'users':
@@ -311,6 +368,105 @@ app.get('/users', (req, res) => {
     res.status(200).json(app.getOnlineUsers());
 });
 
+app.post('/api/register', async (req, res) => {
+    try {
+        const userData = {
+            username: req.body.username,
+            password: req.body.password,
+            email: req.body.email,
+            firstName: req.body.firstName,
+            lastName: req.body.lastName,
+            location: req.body.location,
+            phone: req.body.phone
+        };
+
+        const user = await userManager.createUser(userData);
+        res.json({
+            status: 'success',
+            user: user
+        });
+    } catch (error) {
+        res.status(400).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
+
+app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const isValid = await userManager.validateUser(username, password);
+        
+        if (!isValid) {
+            res.status(401).json({
+                status: 'error',
+                message: 'Invalid credentials'
+            });
+            return;
+        }
+
+        const profile = await userManager.getUserProfile(username);
+        req.session.userId = profile.id;
+        req.session.username = username;
+
+        res.json({
+            status: 'success',
+            profile: profile
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
+
+app.get('/api/profile', async (req, res) => {
+    if (!req.session.userId) {
+        res.status(401).json({
+            status: 'error',
+            message: 'Not authenticated'
+        });
+        return;
+    }
+
+    try {
+        const profile = await userManager.getUserProfile(req.session.userId);
+        res.json({
+            status: 'success',
+            profile: profile
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
+
+app.put('/api/profile', async (req, res) => {
+    if (!req.session.userId) {
+        res.status(401).json({
+            status: 'error',
+            message: 'Not authenticated'
+        });
+        return;
+    }
+
+    try {
+        const updatedProfile = await userManager.updateUserProfile(req.session.userId, req.body);
+        res.json({
+            status: 'success',
+            profile: updatedProfile
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'error',
+            message: error.message
+        });
+    }
+});
 
 app.post('/upload', upload.single('file'), (req, res) => {
     try {
@@ -330,6 +486,33 @@ app.post('/upload', upload.single('file'), (req, res) => {
         res.status(500).json({ error: 'Upload failed' });
     }
 });
+
+// Endpoint to get other users' profiles
+app.get('/api/userprofile', async (req, res) => {
+    try {
+        const username = req.query.user;
+        if (!username) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Username is required'
+            });
+        }
+
+        const profile = await userManager.getUserProfile(username);
+        
+        // Return in format matching existing client expectations
+        res.json({
+            status: 'success',
+            ...profile  // This spreads Login, Picture, and other profile fields
+        });
+    } catch (error) {
+        res.status(404).json({
+            status: 'error',
+            message: 'User not found'
+        });
+    }
+});
+
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
