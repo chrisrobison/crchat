@@ -45,11 +45,6 @@ const workerCode = `
     const $$ = str => document.querySelectorAll(str);
 
     const app = {
-        config: {
-            verifyLogin: false,
-            server: "cdr2.com",
-            port: 3210
-        },
         data: {
             messages: [],
             users: [],
@@ -62,28 +57,14 @@ const workerCode = `
         },
         worker: null,
         async init() {
-            if (app.config.verifyLogin) {
-                let resp = await fetch("/portal/api.php?type=loginProfile");
-                let profile = await resp.json();
-                console.log(`profile`);
-                console.dir(profile);
-
-                if (profile.status && profile.status === "error") {
-                    if (profile.redirect) {
-                        document.location.href = profile.redirect + "?url=/chat/index.html";
-                    }
-                }
-                app.data.users[profile.Login] = profile;
-                app.data.me = profile;
-                app.data.username = profile.Login;
-
+            // Try to restore username from localStorage
+            let savedUsername = localStorage.getItem('chatUsername') || profile.Login;
+            if (savedUsername) {
+                app.data.username = savedUsername;
+                app.data.me = savedUsername;
                 $('#usernameModal').style.display = 'none';
-            } else {
-                let savedUsername = localStorage.getItem('chatUsername');
-                if (savedUsername) {
-                    app.data.username = savedUsername;
-                }
             }
+
             // Create Web Worker from blob
             const blob = new Blob([workerCode], { type: 'application/javascript' });
             const workerUrl = URL.createObjectURL(blob);
@@ -115,12 +96,12 @@ const workerCode = `
             $('#messageInput').addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') app.sendMessage();
             });
-            $('#joinButton').addEventListener('click', (e) => { app.login(e) });
+            $('#joinButton').addEventListener('click', () => app.join());
             document.addEventListener('paste', (e) => app.handlePaste(e));
 
             // Initial connection
-            //app.connect();
-            //app.join(app.data.username);
+            app.connect();
+            app.join(app.data.username);
             app.state.loaded = true;
         },
         async handlePaste(e) {
@@ -161,7 +142,7 @@ const workerCode = `
                 const formData = new FormData();
                 formData.append('file', blob);
                 
-                const response = await fetch(`https://${app.config.server}:${app.config.port}/api/upload?user=${app.data.username}`, {
+                const response = await fetch('https://cdr2.com/crchat/upload?user='+app.data.username, {
                     method: 'POST',
                     body: formData
                 });
@@ -309,14 +290,10 @@ const workerCode = `
         },
         async getUserProfile(user) {
             if (app.data.users[user]) return app.data.users[user];
-            if (!user) {
-                console.error("getUserProfile called without a user");
-                return null;
-            }
-            let resp = await fetch(`https://${app.config.server}:${app.config.port}/api/userprofile?user=${user}`);
+            let resp = await fetch(`/portal/api.php?type=loginProfile&user=${user}`);
             let profile = await resp.json();
 
-            if (profile.status === 'error') {
+            if (profile.status && profile.status==="error") {
                 if (profile.redirect) {
                     document.location.href = profile.redirect + '?url=/chat/';
                 }
@@ -325,7 +302,7 @@ const workerCode = `
             }
             return profile;
         },
-        connect() {
+       connect() {
             app.worker.postMessage({
                 type: 'connect',
                 data: { url: 'wss://cdr2.com:3210' }
@@ -350,51 +327,9 @@ const workerCode = `
             });
             app.state.identified = true;
         },
-        login(evt) {
-            evt.preventDefault();
-            const username = $("#usernameInput").value.trim();
-            const password = $("#passwordInput").value.trim();  // Make sure you have this input in your HTML
-            
-            if (!username || !password) {
-                alert('Please enter both username and password');
-                return false;
-            }
-
-            fetch(`https://${app.config.server}:${app.config.port}/api/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    username: username,
-                    password: password
-                })
-            })
-            .then(response => response.json())
-            .then(result => {
-                console.log('Login response:', result);
-                
-                if (result.status === 'success') {
-                    app.data.me = result.profile;
-                    app.data.username = username;
-                    $('#usernameModal').style.display = 'none';
-                    app.connect();
-                    app.join(username);
-                } else {
-                    alert(result.message || 'Login failed');
-                }
-            })
-            .catch(error => {
-                console.error('Login error:', error);
-                alert('Login failed: ' + (error.message || 'Unknown error'));
-            });
-
-            return false;
-        },
         join(user) {
             let username;
-            if (user && typeof(user)==="string") {
+            if (user) {
                 username = user;
             } else {
                 username = $('#usernameInput').value.trim();
@@ -408,59 +343,6 @@ const workerCode = `
                     app.identify();
                 }
             }
-        },
-        showLogin(evt) {
-            if (evt) evt.preventDefault();
-
-            $(".username-modal").style.display = "flex";
-            $(".registration-modal").style.display = "none";
-            return false;
-        },
-        showRegistration(evt) {
-            if (evt) evt.preventDefault();
-
-            $(".username-modal").style.display = "none";
-            $(".registration-modal").style.display = "flex";
-            return false;
-        },
-        async register(evt) {
-            if (evt) evt.preventDefault();
-            
-            const form = $("#registrationForm");
-            const formData = new FormData(form);
-            const data = {};
-            
-            // Convert FormData to plain object
-            formData.forEach((value, key) => {
-                data[key] = value;
-            });
-            console.log("registering");
-console.dir(data);
-            try {
-                const resp = await fetch(`https://${app.config.server}:${app.config.port}/api/register`, {
-                    method: "POST",
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify(data)
-                });
-
-                const result = await resp.json();
-                console.log('Registration response:', result);  // Debug log
-
-                if (result.status === 'success') {
-                    $(".registration-modal").style.display = "none";
-                    alert("Account created. You may now login.");
-                    $(".username-modal").style.display = "flex";
-                } else {
-                    alert(result.message || 'Registration failed');
-                }
-            } catch (error) {
-                console.error('Registration error:', error);
-                alert('Registration failed: ' + (error.message || 'Unknown error'));
-            }
-            return false;
         },
         sendTyping() {
             const input = $("#messageInput");
@@ -506,31 +388,24 @@ console.dir(data);
                 if (!seen[username]) {
                     const userDiv = document.createElement('div');
                     userDiv.className = 'user-item';
-                    
-                    if (username) {
-                        // Get or fetch user profile
-                        if (!app.data.users[username]) {
-                            app.data.users[username] = await app.getUserProfile(username);
-                        }
-                        const profile = app.data.users[username];
 
-                        userDiv.innerHTML = `
-                            ${profile.Picture ? `<img class="profilepic" src="${profile.Picture}">` : ''}
-                            <span class="username">${username}</span>
-                        `;
-
-                        usersList.appendChild(userDiv);
-                        seen[username] = 1;
+                    // Get or fetch user profile
+                    if (!app.data.users[username]) {
+                        app.data.users[username] = await app.getUserProfile(username);
                     }
+                    const profile = app.data.users[username];
+
+                    userDiv.innerHTML = `
+                        ${profile.Picture ? `<img class="profilepic" src="${profile.Picture}">` : ''}
+                        <span class="username">${username}</span>
+                    `;
+
+                    usersList.appendChild(userDiv);
+                    seen[username] = 1;
                 }
             });
         },
         async receiveMessage(message, historical=false) {
-            if (message.type === 'system' && message.content === 'Please log in to join the chat.') {
-                // Show the login modal again
-                $('#usernameModal').style.display = 'flex';
-                return;
-            }
             if (message.type === 'users') {
                 app.updateUserList(message.content);
             } else if (message.type === 'history') {
@@ -590,17 +465,14 @@ console.dir(data);
         <div class="message-content">%%Message%%</div>
     </div>
     <div class="message-timestamp">%%ShowDate%%</div>`;
-
-            if (message.username && !app.data.users[message.username]) {
+            if (!app.data.users[message.username]) {
                 app.data.users[message.username] = await app.getUserProfile(message.username);
             }
 
             let msg = message;
-            if (msg.type != 'system') {
-                msg.Picture = (app.data.users[message.username].Picture) ? `<img class="profilepic" width="32" src="${app.data.users[message.username].Picture}">` : '';
-                msg.Login = message.username;
-                msg.mine = (message.username == app.data.me.Login) ? ' mine' : '';
-            }
+            msg.Picture = (app.data.users[message.username].Picture) ? `<img class="profilepic" width="32" src="${app.data.users[message.username].Picture}">` : '';
+            msg.Login = message.username;
+            msg.mine = (message.username == app.data.me.Login) ? ' mine' : '';
             msg.Message = message.content;
 
             if (message.messageType === 'image') {

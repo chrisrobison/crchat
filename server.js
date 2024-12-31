@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const https = require('https');
 const express = require('express');
 const fs = require('fs');
+const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const mime = require('mime-types');
@@ -12,14 +13,38 @@ const session = require('express-session');
 
 // Initialize express app
 const app = express();
+const userManager = new UserManager();
+const sessionSecret = crypto.randomBytes(32).toString('hex');
 
-// Initialize user manager
+// Create session middleware
+const sessionMiddleware = session({
+    secret: sessionSecret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: true,
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    }
+});
+
+// Use the session middleware in Express
+app.use(sessionMiddleware);
+
+// Add CORS middleware before other routes
+app.use(cors({
+    origin: ['https://cdr2.com', 'dharristours.simpsf.com'], // or your frontend domain
+    credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']// This is important for sessions
+}));
+
+app.use(express.json());
 app.use(bodyParser.json());
 app.use(session({
     secret: crypto.randomBytes(32).toString('hex'),
     resave: false,
     saveUninitialized: false,
-    cookie: { 
+    cookie: {
         secure: true,
         maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     }
@@ -73,7 +98,16 @@ const credentials = {
 const server = https.createServer(credentials, app);
 
 // Create WebSocket server instance
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ server, 
+    verifyClient: (info, callback) => {
+        console.log('Verifying client connection...');
+        sessionMiddleware(info.req, {}, () => {
+            const userId = info.req.session?.userId;
+            console.log(`Session userId: ${userId}`);
+            callback(true);
+        });
+    }
+});
 
 // Store active connections and their usernames
 const clients = new Map();
@@ -129,7 +163,7 @@ const chatHistory = {
 
     add(message) {
         // Don't log certain system messages
-        if (message.type === 'system' && 
+        if (message.type === 'system' &&
             (message.content.includes('Connected to chat server') ||
              message.content.includes('Please identify yourself'))) {
             return;
@@ -168,9 +202,9 @@ function broadcast(message, sender) {
 
 // Handle new WebSocket connections
 wss.on('connection', (ws, req) => {
-    console.log('Client connected');
     const sessionId = req.session?.userId;
-    
+    console.log(`Client connected [${sessionId}]`);
+
     if (!sessionId) {
         ws.send(JSON.stringify({
             type: 'system',
@@ -182,15 +216,16 @@ wss.on('connection', (ws, req) => {
     }
 
     try {
-        const profile = await userManager.getUserProfile(sessionId);
-        clients.set(ws, profile.Login); // Use Login to match client expectations
-        
-        ws.send(JSON.stringify({
-            type: 'system',
-            content: 'Connected to chat server.',
-            timestamp: new Date().toISOString()
-        }));
+        async () => {
+            const profile = await userManager.getUserProfile(sessionId);
+            clients.set(ws, profile.Login); // Use Login to match client expectations
 
+            ws.send(JSON.stringify({
+                type: 'system',
+                content: 'Connected to chat server.',
+                timestamp: new Date().toISOString()
+            }));
+        };
     } catch (error) {
         console.error('Error getting user profile:', error);
         ws.close();
@@ -204,7 +239,7 @@ wss.on('connection', (ws, req) => {
                 case 'join':
                     // Update the client's username
                     clients.set(ws, message.username);
-                    
+
                     // Send recent history to newly joined user
                     const recentHistory = chatHistory.getRecent();
                     ws.send(JSON.stringify({
@@ -240,7 +275,7 @@ wss.on('connection', (ws, req) => {
                         content: message.content,
                         timestamp: new Date().toISOString()
                     };
-                    
+
                     broadcast(statusMessage, ws);
 
                     break;
@@ -319,7 +354,7 @@ wss.on('connection', (ws, req) => {
             };
             broadcast(leaveMessage);
             chatHistory.add(leaveMessage);
-            
+
             // Broadcast updated user list after disconnection
             clients.delete(ws);
             broadcastUserList();
@@ -370,22 +405,47 @@ app.get('/users', (req, res) => {
 
 app.post('/api/register', async (req, res) => {
     try {
+        console.log('Register attempt - received data:', req.body);  // Debug log
+        
+        // Check if we have all required fields
+        const requiredFields = ['username', 'password', 'email'];
+        const missingFields = requiredFields.filter(field => !req.body[field]);
+        
+        if (missingFields.length > 0) {
+            console.log('Missing required fields:', missingFields);  // Debug log
+            return res.status(400).json({
+                status: 'error',
+                message: `Missing required fields: ${missingFields.join(', ')}`
+            });
+        }
+
         const userData = {
             username: req.body.username,
             password: req.body.password,
             email: req.body.email,
-            firstName: req.body.firstName,
-            lastName: req.body.lastName,
-            location: req.body.location,
-            phone: req.body.phone
+            firstName: req.body.firstName || '',
+            lastName: req.body.lastName || '',
+            location: req.body.location || '',
+            phone: req.body.phone || ''
         };
 
+        console.log('Attempting to create user with data:', {
+            ...userData,
+            password: '[REDACTED]'  // Don't log the actual password
+        });
+
         const user = await userManager.createUser(userData);
+        console.log('User created successfully:', user.username);  // Debug log
+
         res.json({
             status: 'success',
-            user: user
+            user: {
+                ...user,
+                password: undefined  // Don't send password back
+            }
         });
     } catch (error) {
+        console.error('Registration error:', error);  // Enhanced error logging
         res.status(400).json({
             status: 'error',
             message: error.message
@@ -397,7 +457,7 @@ app.post('/api/login', async (req, res) => {
     try {
         const { username, password } = req.body;
         const isValid = await userManager.validateUser(username, password);
-        
+
         if (!isValid) {
             res.status(401).json({
                 status: 'error',
@@ -491,7 +551,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.get('/api/userprofile', async (req, res) => {
     try {
         const username = req.query.user;
-        if (!username) {
+        if (!username || username === "undefined") {
             return res.status(400).json({
                 status: 'error',
                 message: 'Username is required'
@@ -499,7 +559,7 @@ app.get('/api/userprofile', async (req, res) => {
         }
 
         const profile = await userManager.getUserProfile(username);
-        
+
         // Return in format matching existing client expectations
         res.json({
             status: 'success',

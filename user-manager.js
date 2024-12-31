@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const { v4: uuidv4 } = require('uuid');
 
 class UserManager {
-    constructor(basePath = '/home/cdr/cdr2/crchat') {
+    constructor(basePath = '/home/cdr/domains/cdr2.com/www/crchat') {
         this.basePath = basePath;
         this.usersFile = path.join(basePath, 'users.jsonl');
         this.usersDir = path.join(basePath, 'users');
@@ -32,24 +32,30 @@ class UserManager {
         }
     }
 
-    async createUser(username, password, email) {
+    async createUser(data) {
         // Validate inputs
-        if (!username || !password || !email) {
+        console.log("creating user");
+        console.dir(data);
+        if (!data.username || !data.password || !data.email) {
             throw new Error('Missing required fields');
         }
-        if (this.userCache.has(username)) {
+        if (this.userCache.has(data.username)) {
             throw new Error('Username already exists');
         }
 
         // Hash password
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(data.password, 10);
 
         // Create user object
         const user = {
             id: uuidv4(),
-            username,
-            email,
+            username: data.username,
+            email: data.email,
             password: hashedPassword,
+            location: data.location,
+            phone: data.phone,
+            firstName: data.firstName,
+            lastName: data.lastName,
             created: new Date().toISOString(),
             lastLogin: null,
             status: 'active'
@@ -82,7 +88,7 @@ class UserManager {
         );
 
         // Add to cache
-        this.userCache.set(username, user);
+        this.userCache.set(data.username, user);
 
         // Return user object (without password)
         const { password: _, ...userWithoutPassword } = user;
@@ -98,10 +104,11 @@ class UserManager {
     }
 
     async getUserProfile(userId) {
+        const user = this.userCache.get(userId);
         try {
-            const profilePath = path.join(this.usersDir, userId, 'profile.json');
+            const profilePath = path.join(this.usersDir, user.id, 'profile.json');
             const profile = await fs.readFile(profilePath, 'utf8');
-            return JSON.parse(profile);
+            return {...user, profile: JSON.parse(profile) };
         } catch (error) {
             throw new Error('Profile not found');
         }

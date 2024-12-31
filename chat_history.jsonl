@@ -272,3 +272,14 @@
 {"type":"system","content":"Chris has joined the chat","timestamp":"2024-12-29T08:08:28.476Z"}
 {"type":"system","content":"Chris has left the chat","timestamp":"2024-12-29T08:31:58.731Z"}
 {"type":"system","content":"Chris has joined the chat","timestamp":"2024-12-29T08:31:59.412Z"}
+{"type":"system","content":"Chris has left the chat","timestamp":"2024-12-29T10:19:19.725Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2024-12-29T10:19:46.059Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2024-12-29T10:19:46.872Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2024-12-29T10:19:54.492Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2024-12-29T10:23:13.786Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2024-12-31T05:55:57.686Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2024-12-31T06:00:29.844Z"}
+{"type":"chat","messageType":"text","username":"cdr","content":"testing 1..2..3..","timestamp":"2024-12-31T06:02:34.502Z"}
+{"type":"chat","messageType":"text","username":"cdr","content":"hey","timestamp":"2024-12-31T06:02:37.889Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2024-12-31T14:36:08.369Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2024-12-31T14:36:37.290Z"}

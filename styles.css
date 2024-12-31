@@ -7,6 +7,9 @@
     --header-background: #666;
     --header-color: #fff;
     --chat-background: #f5f5f5;
+    --primary-color: #05a;
+    --secondary-color: #090;
+    --dialog-background: #333;
     --message-background: #e3e3e3;
     --my-message-background: #007bff;
     --my-message-color: #fff;
@@ -202,17 +205,43 @@ main {
 }
 
 .username-form {
-    background: white;
-    padding: 2rem;
+    background: #333;
+    padding: 0;
+    margin: 0;
     border-radius: 8px;
     text-align: center;
+    min-width: 400px;
 }
 
+.username-form h2 {
+    padding: 0.5em 1em;
+    background: var(--primary-color);
+    color: #eee;
+    margin: 0;
+    border-top-left-radius: 0.5em;
+    border-top-right-radius: 0.5em;
+}
+
+#usernameForm {
+    padding: 1em 1em;
+    font-size: 16px;
+    font-weight: 300;
+}
+
+#usernameForm input {
+    font-size: 22px;
+}
 .username-form input {
     margin: 1rem 0;
     padding: 0.5rem;
     width: 200px;
-    border-radius: 1em;
+    border-radius: 0.5em;
+}
+.username-form button {
+    font-size: 22px;
+    border-radius: 4px;
+    border: 0;
+    padding: 6px 12px;
 }
 .connection-status {
     position: fixed;
@@ -318,7 +347,7 @@ color: #eee;
     align-items: flex-end;
 }
 .message:after {
-    content: 'â—¥';
+    content: '◥';
     position: absolute;
     left: -12px;
     right: unset;
@@ -326,7 +355,7 @@ color: #eee;
     top: 20px;
 }
 .message.mine:after {
-    content: 'â—£';
+    content: '◣';
     font-size: 32px;
     position: absolute;
     left: unset;

@@ -12,40 +12,42 @@
 <div id="connectionStatus" class="connection-status">Connecting...</div>
 <div class="username-modal" id="usernameModal">
     <div class="username-form">
+        <h2>CR-Chat Login</h2>
         <form id="usernameForm" onsubmit="return app.login(event)">
-            <h2>Enter your CRchat username</h2>
-            <input type="text" id="usernameInput" placeholder="Username">
-            <input type="password" id="passwordInput" placeholder="Password">
-            <button id="joinButton">Join Chat</button>
-            <hr>
-            <p>Don&apos;t have an account? <a onclick="return app.showRegistration();" href="register.html">Create an account</a> for free!</p>
+            <div><label for=="usernameInput">Username</label> <input type="text" id="usernameInput" placeholder="Username"></div>
+            <div><label for="passwordInput">Password</label> <input type="password" id="passwordInput" placeholder="Password"></div>
+            <div style="padding-top: 1em;text-align:right;"><button id="joinButton">Join Chat</button></div>
         </form>
+        <p style="border-top:1px solid #fff5; font-weight:300;font-size:14px;margin-top: 1em; padding-top: 0.5em">
+            Don&apos;t have an account? 
+            <a onclick="return app.showRegistration(event);" href="register.html">Signup</a> for free!
+        </p>
     </div>
 </div>
 <div class="registration-modal" id="registrationModal">
     <div class="registration-form">
-        <h2>Register a CRchat user account</h2>
+        <h2>CR-Chat Registration</h2>
         <form id="registrationForm" onsubmit="return app.register(event)">
             <div>
                 <label for="registrationUsername">Username</label>
-                <input type="text" id="registrationUsername" placeholder="Username" title="Short, unique name that will identify you.">
+                <input type="text" id="registrationUsername" name="username" placeholder="Username" title="Short, unique name that will identify you.">
             </div>
             <div>
                 <label for="registrationFirstName">Name</label>
                 <div>
-                    <input type="text" style="width: 15em;" id="registrationFirstName" placeholder="First Name" title="Your first or given name.">
-                    <input type="text" style="width: 15em;" id="registrationLastName" placeholder="Last Name" title="Your last or family name.">
+                    <input type="text" style="width: 15em;" id="registrationFirstName" name="firstName" placeholder="First Name" title="Your first or given name.">
+                    <input type="text" style="width: 15em;" id="registrationLastName" name="lastName" placeholder="Last Name" title="Your last or family name.">
                 </div>
             </div>
             <div><label for="registrationLocation">Location</label>
-                <input type="text" id="registrationLocation" placeholder="Location" title="Region you are located in.">
+                <input type="text" id="registrationLocation" name="location" placeholder="Location" title="Region you are located in.">
             </div>
             <div><label for="registrationEmail">Email</label>
-            <input type="email" id="registrationEmail" placeholder="Email" title="Your email address."></div>
+            <input type="email" id="registrationEmail" name="email" placeholder="Email" title="Your email address."></div>
             <div><label for="registrationPhone">Phone</label>
-            <input type="tel" id="registrationPhone" placeholder="Phone" title="Your Phone address."></div>
+            <input type="tel" id="registrationPhone" name="phone" placeholder="Phone" title="Your Phone address."></div>
             <div><label for='registrationPassword'>Password</label>
-            <input type="password" id="registrationPassword" placeholder="Password" title="A secure password."></div>
+            <input type="password" id="registrationPassword" name="password" placeholder="Password" title="A secure password."></div>
             <div class="align-right"><button id="registerButton">Register</button></div>
             <div class="small align-right"><p>Already have an account? <a onclick="return app.showLogin();" href="#">Login</a></p></div>
         </form>
@@ -67,6 +69,6 @@
         </div>
     </div>
 </main>
-<script src="chat.js"></script>
+<script src="chat.js?v1.01"></script>
 </body>
 </html>
