@@ -283,3 +283,26 @@
 {"type":"chat","messageType":"text","username":"cdr","content":"hey","timestamp":"2024-12-31T06:02:37.889Z"}
 {"type":"system","content":"cdr has left the chat","timestamp":"2024-12-31T14:36:08.369Z"}
 {"type":"system","content":"cdr has joined the chat","timestamp":"2024-12-31T14:36:37.290Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2024-12-31T14:46:55.864Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T09:19:10.022Z"}
+{"type":"chat","messageType":"text","username":"cdr","content":"why is everything on the wrong side?","timestamp":"2025-01-04T09:19:23.066Z"}
+{"type":"chat","messageType":"text","username":"cdr","content":"wah!","timestamp":"2025-01-04T09:19:25.606Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T09:19:38.079Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:30:25.460Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T17:32:07.534Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:32:27.019Z"}
+{"type":"chat","messageType":"text","username":"cdr","content":"ah, much better","timestamp":"2025-01-04T17:32:37.455Z"}
+{"type":"system","content":"cdr420 has joined the chat","timestamp":"2025-01-04T17:36:23.554Z"}
+{"type":"chat","messageType":"text","username":"cdr420","content":"why hello!","timestamp":"2025-01-04T17:36:56.188Z"}
+{"type":"system","content":"cdr420 has joined the chat","timestamp":"2025-01-04T17:39:23.520Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:39:23.854Z"}
+{"type":"system","content":"cdr420 has left the chat","timestamp":"2025-01-04T17:52:42.619Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:52:50.250Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T17:56:51.999Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:57:00.480Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T17:57:19.938Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:57:26.668Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T17:59:48.919Z"}
+{"type":"system","content":"cdr has joined the chat","timestamp":"2025-01-04T17:59:57.836Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T18:04:28.997Z"}
+{"type":"system","content":"cdr has left the chat","timestamp":"2025-01-04T18:04:48.905Z"}

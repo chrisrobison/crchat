@@ -4,8 +4,15 @@ const workerCode = `
     let reconnectAttempts = 0;
     const MAX_RECONNECT_DELAY = 5000;
 
-    function connect(url) {
-        ws = new WebSocket(url);
+    function connect(url, cookie) {
+        // Include the cookie in the WebSocket connection
+        const wsConfig = {
+            headers: {
+                Cookie: cookie
+            }
+        };
+        
+        ws = new WebSocket(url, [], wsConfig);
 
         ws.onopen = () => {
             reconnectAttempts = 0;
@@ -20,7 +27,12 @@ const workerCode = `
             postMessage({ type: 'disconnected' });
             const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), MAX_RECONNECT_DELAY);
             reconnectAttempts++;
-            setTimeout(() => connect(url), delay);
+            setTimeout(() => connect(url, cookie), delay);
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            postMessage({ type: 'error', data: error });
         };
     }
 
@@ -29,7 +41,7 @@ const workerCode = `
 
         switch(type) {
             case 'connect':
-                connect(data.url);
+                connect(data.url, data.cookie);
                 break;
             case 'send':
                 if (ws && ws.readyState === WebSocket.OPEN) {
@@ -39,7 +51,6 @@ const workerCode = `
         }
     };
 `;
-
 (function() {
     const $ = str => document.querySelector(str);
     const $$ = str => document.querySelectorAll(str);
@@ -75,7 +86,7 @@ const workerCode = `
                 }
                 app.data.users[profile.Login] = profile;
                 app.data.me = profile;
-                app.data.username = profile.Login;
+                app.data.Login = profile.Login;
 
                 $('#usernameModal').style.display = 'none';
             } else {
@@ -84,6 +95,36 @@ const workerCode = `
                     app.data.username = savedUsername;
                 }
             }
+            const savedLogin = app.loadLoginState();
+            if (savedLogin) {
+                try {
+                    // Verify the session is still valid with the server
+                    const response = await fetch(`https://${app.config.server}:${app.config.port}/api/profile`, {
+                        credentials: 'include'
+                    });
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        app.data.me = result.profile;
+                        app.data.username = savedLogin.username;
+
+                        
+                        $('#usernameModal').style.display = 'none';
+                        app.connect();
+                        app.join(savedLogin.username);
+                    } else {
+                        app.clearLoginState();
+                        $('#usernameModal').style.display = 'flex';
+                    }
+                } catch (error) {
+                    console.error('Error verifying login state:', error);
+                    app.clearLoginState();
+                    $('#usernameModal').style.display = 'flex';
+                }
+            } else {
+                $('#usernameModal').style.display = 'flex';
+            }
+
             // Create Web Worker from blob
             const blob = new Blob([workerCode], { type: 'application/javascript' });
             const workerUrl = URL.createObjectURL(blob);
@@ -122,6 +163,18 @@ const workerCode = `
             //app.connect();
             //app.join(app.data.username);
             app.state.loaded = true;
+        },
+        async getSimpleProfile(user) {
+            let resp = await fetch("https://dharristours.simpsf.com/portal/api.php?type=loginProfile");
+            let profile = await resp.json();
+            console.log(`profile`);
+            console.dir(profile);
+            
+            if (profile.LoginID) {
+                app.data.users[profile.Login] = profile;
+            }
+            
+            return profile;
         },
         async handlePaste(e) {
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
@@ -316,7 +369,7 @@ const workerCode = `
             let resp = await fetch(`https://${app.config.server}:${app.config.port}/api/userprofile?user=${user}`);
             let profile = await resp.json();
 
-            if (profile.status === 'error') {
+            if (profile.status && profile.status === "error") {
                 if (profile.redirect) {
                     document.location.href = profile.redirect + '?url=/chat/';
                 }
@@ -325,10 +378,11 @@ const workerCode = `
             }
             return profile;
         },
-        connect() {
+       connect() {
+           const cookie = document.cookie;
             app.worker.postMessage({
                 type: 'connect',
-                data: { url: 'wss://cdr2.com:3210' }
+                data: { url: 'wss://cdr2.com:3210', cookie: cookie }
             });
         },
         updateConnectionStatus(status) {
@@ -350,47 +404,84 @@ const workerCode = `
             });
             app.state.identified = true;
         },
-        login(evt) {
+        async login(evt) {
             evt.preventDefault();
             const username = $("#usernameInput").value.trim();
-            const password = $("#passwordInput").value.trim();  // Make sure you have this input in your HTML
-            
+            const password = $("#passwordInput").value.trim();
+
             if (!username || !password) {
                 alert('Please enter both username and password');
                 return false;
             }
 
-            fetch(`https://${app.config.server}:${app.config.port}/api/login`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    username: username,
-                    password: password
-                })
-            })
-            .then(response => response.json())
-            .then(result => {
+            try {
+                const response = await fetch(`https://${app.config.server}:${app.config.port}/api/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        username: username,
+                        password: password
+                    })
+                });
+
+                const result = await response.json();
                 console.log('Login response:', result);
-                
+
                 if (result.status === 'success') {
                     app.data.me = result.profile;
                     app.data.username = username;
+                    
+                    // Save login state
+                    app.saveLoginState({
+                        username: username,
+                        profile: result.profile
+                    });
+                    
                     $('#usernameModal').style.display = 'none';
-                    app.connect();
-                    app.join(username);
+                    
+                    setTimeout(() => {
+                        app.connect();
+                        app.join(username);
+                    }, 100);
                 } else {
                     alert(result.message || 'Login failed');
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 console.error('Login error:', error);
                 alert('Login failed: ' + (error.message || 'Unknown error'));
-            });
+            }
 
             return false;
+        },
+        async logout() {
+            try {
+                // Call logout endpoint if you have one
+                await fetch(`https://${app.config.server}:${app.config.port}/api/logout`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+
+            // Clear local storage and reset state
+            app.clearLoginState();
+            app.data.me = null;
+            app.data.username = '';
+            app.data.connected = false;
+            app.state.identified = false;
+
+            // Disconnect WebSocket
+            if (app.worker) {
+                app.worker.terminate();
+                app.worker = null;
+            }
+
+            // Show login modal
+            $('#usernameModal').style.display = 'flex';
         },
         join(user) {
             let username;
@@ -434,8 +525,6 @@ const workerCode = `
             formData.forEach((value, key) => {
                 data[key] = value;
             });
-            console.log("registering");
-console.dir(data);
             try {
                 const resp = await fetch(`https://${app.config.server}:${app.config.port}/api/register`, {
                     method: "POST",
@@ -590,16 +679,15 @@ console.dir(data);
         <div class="message-content">%%Message%%</div>
     </div>
     <div class="message-timestamp">%%ShowDate%%</div>`;
-
             if (message.username && !app.data.users[message.username]) {
                 app.data.users[message.username] = await app.getUserProfile(message.username);
             }
 
             let msg = message;
             if (msg.type != 'system') {
-                msg.Picture = (app.data.users[message.username].Picture) ? `<img class="profilepic" width="32" src="${app.data.users[message.username].Picture}">` : '';
+                msg.Picture = (app.data.users[message.username].Picture) ? `<img class="profilepic" width="32" src="${app.data.users[message.username].Picture}">` : '<img class="profilepic" width="32" src="nopic.svg">';
                 msg.Login = message.username;
-                msg.mine = (message.username == app.data.me.Login) ? ' mine' : '';
+                msg.mine = (message.username == app.data.username) ? ' mine' : '';
             }
             msg.Message = message.content;
 
@@ -681,7 +769,44 @@ console.dir(data);
 
             }
             return out;
+        },
+        saveLoginState(userData) {
+            const loginState = {
+                username: userData.username,
+                timestamp: new Date().getTime(),
+                // Don't store sensitive data like passwords
+                profile: {
+                    Login: userData.profile.Login,
+                    Picture: userData.profile.Picture,
+                    // Add other non-sensitive profile data as needed
+                }
+            };
+
+            localStorage.setItem('chatLoginState', JSON.stringify(loginState));
+        },
+        loadLoginState() {
+            const savedState = localStorage.getItem('chatLoginState');
+            if (!savedState) return null;
+
+            try {
+                const loginState = JSON.parse(savedState);
+                const now = new Date().getTime();
+                // Check if the saved state is within 30 days
+                if (now - loginState.timestamp > 30 * 24 * 60 * 60 * 1000) {
+                    localStorage.removeItem('chatLoginState');
+                    return null;
+                }
+                return loginState;
+            } catch (e) {
+                console.error('Error loading login state:', e);
+                localStorage.removeItem('chatLoginState');
+                return null;
+            }
+        },
+        clearLoginState() {
+            localStorage.removeItem('chatLoginState');
         }
+
     };
 
     window.app = app;

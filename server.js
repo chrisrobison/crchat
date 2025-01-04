@@ -11,44 +11,62 @@ const UserManager = require('./user-manager');
 const bodyParser = require('body-parser');
 const session = require('express-session');
 
+const allowedOrigins = [
+    'http://localhost:3000',
+    'https://cdr2.com',
+    'https://dharristours.simpsf.com'
+];
+
 // Initialize express app
 const app = express();
 const userManager = new UserManager();
 const sessionSecret = crypto.randomBytes(32).toString('hex');
 
 // Create session middleware
-const sessionMiddleware = session({
+const sessionConfig = {
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
+    name: 'sessionId',  // Custom name for clarity
+    rolling: true,      // Reset expiration on every response
     cookie: {
-        secure: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+        secure: true,   // For HTTPS
+        httpOnly: true, // Prevent XSS
+        sameSite: 'none', // For cross-origin
+        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days in milliseconds
     }
-});
+};
 
 // Use the session middleware in Express
-app.use(sessionMiddleware);
-
-// Add CORS middleware before other routes
-app.use(cors({
-    origin: ['https://cdr2.com', 'dharristours.simpsf.com'], // or your frontend domain
-    credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']// This is important for sessions
-}));
+app.use(session(sessionConfig));
 
 app.use(express.json());
 app.use(bodyParser.json());
-app.use(session({
-    secret: crypto.randomBytes(32).toString('hex'),
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-        secure: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+
+app.options('*', (req, res) => {
+    const origin = req.headers.origin;
+    
+    // Check if the origin is allowed
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Headers', [
+            'Content-Type',
+            'Authorization',
+            'X-Requested-With',
+            'Accept',
+            'Origin',
+            'Access-Control-Allow-Headers',
+            'Access-Control-Request-Headers',
+            'Access-Control-Allow-Origin'
+        ].join(', '));
+        res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
     }
-}));
+    
+    // Send 204 No Content
+    res.status(204).end();
+});
 
 // Initialize user manager when starting the server
 (async () => {
@@ -60,6 +78,60 @@ app.use(session({
         process.exit(1);
     }
 })();
+
+/**
+ * Centralized response handler for consistent response formatting and CORS headers
+ * @param {Object} res - Express response object
+ * @param {number} status - HTTP status code
+ * @param {string} message - Response message
+ * @param {Object|Array} [data] - Optional data payload
+ * @param {Error} [error] - Optional error object
+ */
+function sendResponse(res, status, message, data = null, error = null) {
+    // Get the origin from the request
+    const origin = res.req.headers.origin;
+    
+    // Set CORS headers if origin is allowed
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', [
+            'Content-Type',
+            'Authorization',
+            'X-Requested-With',
+            'Accept',
+            'Origin',
+            'Access-Control-Allow-Headers',
+            'Access-Control-Request-Headers',
+            'Access-Control-Allow-Origin'
+        ].join(', '));
+        res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
+
+    // Construct the response object
+    const response = {
+        status: status < 400 ? 'success' : 'error',
+        message,
+        timestamp: new Date().toISOString()
+    };
+
+    // Add data if provided
+    if (data) {
+        response.data = data;
+    }
+
+    // Add error details if provided and it's an error response
+    if (error && status >= 400) {
+        response.error = {
+            message: error.message,
+            ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+        };
+    }
+
+    // Send the response
+    return res.status(status).json(response);
+}
 
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
@@ -391,7 +463,7 @@ app.get('/api/chat/history', (req, res) => {
 
 // Basic health check endpoint
 app.get('/health', (req, res) => {
-    res.status(200).json({
+    return sendResponse(res, 200, 'Health check successful', {
         status: 'healthy',
         connections: clients.size,
         secure: true,
@@ -413,10 +485,7 @@ app.post('/api/register', async (req, res) => {
         
         if (missingFields.length > 0) {
             console.log('Missing required fields:', missingFields);  // Debug log
-            return res.status(400).json({
-                status: 'error',
-                message: `Missing required fields: ${missingFields.join(', ')}`
-            });
+            return sendResponse(res, 400, 'Missing required fields', null, {status: 'error', message: `Missing required fields: ${missingFields.join(', ')}`});
         }
 
         const userData = {
@@ -436,72 +505,69 @@ app.post('/api/register', async (req, res) => {
 
         const user = await userManager.createUser(userData);
         console.log('User created successfully:', user.username);  // Debug log
-
-        res.json({
-            status: 'success',
+        
+        return sendResponse(res, 201, 'User registered successfully', {
             user: {
                 ...user,
-                password: undefined  // Don't send password back
+                password: undefined
             }
         });
     } catch (error) {
-        console.error('Registration error:', error);  // Enhanced error logging
-        res.status(400).json({
-            status: 'error',
-            message: error.message
-        });
+        return sendResponse(res, 400, 'Registration failed', null, error);
     }
 });
 
-app.post('/api/login', async (req, res) => {
-    try {
-        const { username, password } = req.body;
-        const isValid = await userManager.validateUser(username, password);
-
-        if (!isValid) {
-            res.status(401).json({
-                status: 'error',
-                message: 'Invalid credentials'
-            });
-            return;
+app.route('/api/login')
+    .options((req, res) => {
+        const origin = req.headers.origin;
+        if (origin && allowedOrigins.includes(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Credentials', 'true');
+            res.setHeader('Access-Control-Allow-Headers', [
+                'Content-Type',
+                'Authorization',
+                'X-Requested-With',
+                'Accept',
+                'Origin',
+                'Access-Control-Allow-Headers',
+                'Access-Control-Request-Headers',
+                'Access-Control-Allow-Origin'
+            ].join(', '));
+            res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
         }
+        res.status(204).end();
+    })
+    .post(async (req, res) => {
+        // Your existing login handler code
+        try {
+            const { username, password } = req.body;
+            const isValid = await userManager.validateUser(username, password);
 
-        const profile = await userManager.getUserProfile(username);
-        req.session.userId = profile.id;
-        req.session.username = username;
+            if (!isValid) {
+                return sendResponse(res, 401, 'Invalid credentials');
+            }
 
-        res.json({
-            status: 'success',
-            profile: profile
-        });
-    } catch (error) {
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
-    }
-});
+            const profile = await userManager.getUserProfile(username);
+            req.session.userId = profile.id;
+            req.session.username = username;
+
+            return sendResponse(res, 200, 'Login successful', { profile });
+        } catch (error) {
+            return sendResponse(res, 500, 'Login failed', null, error);
+        }
+    });
 
 app.get('/api/profile', async (req, res) => {
     if (!req.session.userId) {
-        res.status(401).json({
-            status: 'error',
-            message: 'Not authenticated'
-        });
-        return;
+        return sendResponse(res, 401, 'Not authenticated');
     }
 
     try {
         const profile = await userManager.getUserProfile(req.session.userId);
-        res.json({
-            status: 'success',
-            profile: profile
-        });
+        return sendResponse(res, 200, 'Profile retrieved successfully', { profile });
     } catch (error) {
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
+        return sendResponse(res, 500, 'Failed to retrieve profile', null, error);
     }
 });
 
@@ -516,15 +582,9 @@ app.put('/api/profile', async (req, res) => {
 
     try {
         const updatedProfile = await userManager.updateUserProfile(req.session.userId, req.body);
-        res.json({
-            status: 'success',
-            profile: updatedProfile
-        });
+        return sendResponse(res, 200, 'Profile updated successfully', { updatedProfile });
     } catch (error) {
-        res.status(500).json({
-            status: 'error',
-            message: error.message
-        });
+        return sendResponse(res, 500, 'Failed to update profile', null, error);
     }
 });
 
@@ -535,7 +595,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
         }
 
         // Return file information
-        res.json({
+        return sendResponse(res, 200, 'File uploaded successfully', {
             filename: req.file.filename,
             mimetype: req.file.mimetype,
             size: req.file.size,
@@ -543,7 +603,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
         });
     } catch (error) {
         console.error('Upload error:', error);
-        res.status(500).json({ error: 'Upload failed' });
+        return sendResponse(res, 500, 'Upload failed', null, error);
     }
 });
 
@@ -552,30 +612,36 @@ app.get('/api/userprofile', async (req, res) => {
     try {
         const username = req.query.user;
         if (!username || username === "undefined") {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Username is required'
-            });
+            return sendResponse(res, 400, 'Username is required', null, { status: 'error', message: 'Username is required' });
         }
 
         const profile = await userManager.getUserProfile(username);
 
         // Return in format matching existing client expectations
-        res.json({
+        return sendResponse(res, 200, `Successfully retrieved userprofile [${username}] `, {
             status: 'success',
-            ...profile  // This spreads Login, Picture, and other profile fields
+            ...profile  
         });
     } catch (error) {
-        res.status(404).json({
-            status: 'error',
-            message: 'User not found'
-        });
+        return sendResponse(res, 404, 'User not found', null, error);
     }
 });
 
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
+
+app.use((req, res) => {
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    res.status(404).json({
+        status: 'error',
+        message: 'Route not found'
+    });
+});
 
 // Error handling for certificate reading
 process.on('uncaughtException', (error) => {
