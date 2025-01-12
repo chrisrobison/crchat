@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const UserManager = require('./user-manager');
 const bodyParser = require('body-parser');
 const session = require('express-session');
+const jwt = require('jsonwebtoken');
 
 const allowedOrigins = [
     'http://localhost:3000',
@@ -20,7 +21,31 @@ const allowedOrigins = [
 // Initialize express app
 const app = express();
 const userManager = new UserManager();
+
+// JWT setup
+// Load or generate a persistent JWT secret
+const JWT_SECRET_FILE = path.join(__dirname, '.jwt-secret');
+let JWT_SECRET;
+
+try {
+    // Try to load existing secret
+    if (fs.existsSync(JWT_SECRET_FILE)) {
+        JWT_SECRET = fs.readFileSync(JWT_SECRET_FILE, 'utf8');
+        console.log('Loaded existing JWT secret');
+    } else {
+        // Generate and save new secret if none exists
+        JWT_SECRET = crypto.randomBytes(64).toString('hex');
+        fs.writeFileSync(JWT_SECRET_FILE, JWT_SECRET);
+        console.log('Generated and saved new JWT secret');
+    }
+} catch (error) {
+    console.error('Error handling JWT secret:', error);
+    process.exit(1);
+}
+
+// Use existing session secret or generate new one
 const sessionSecret = crypto.randomBytes(32).toString('hex');
+const TOKEN_EXPIRY = '30d'; // 30 days
 
 // Create session middleware
 const sessionConfig = {
@@ -37,8 +62,11 @@ const sessionConfig = {
     }
 };
 
+// Create the session middleware and save for later
+const sessionMiddleware = session(sessionConfig);
+
 // Use the session middleware in Express
-app.use(session(sessionConfig));
+app.use(sessionMiddleware);
 
 app.use(express.json());
 app.use(bodyParser.json());
@@ -79,6 +107,39 @@ app.options('*', (req, res) => {
     }
 })();
 
+// Authentication middleware
+const verifyToken = async (req, res, next) => {
+    try {
+        // Try getting token from cookies first
+        let token = req.cookies?.auth_token;
+
+        // Fallback to Authorization header
+        if (!token && req.headers.authorization) {
+            token = req.headers.authorization.replace('Bearer ', '');
+        }
+
+        if (!token) {
+            console.log('No token found in request');
+            return sendResponse(res, 401, 'Authentication required');
+        }
+
+        try {
+            const decoded = jwt.verify(token, JWT_SECRET);
+            console.log('Token verified for user:', decoded.username);
+            
+            // Store the decoded user info in the request
+            req.user = decoded;
+            next();
+        } catch (error) {
+            console.log('Token verification failed:', error.message);
+            return sendResponse(res, 401, 'Invalid token');
+        }
+    } catch (error) {
+        console.error('Auth middleware error:', error);
+        return sendResponse(res, 500, 'Internal server error');
+    }
+};
+
 /**
  * Centralized response handler for consistent response formatting and CORS headers
  * @param {Object} res - Express response object
@@ -90,11 +151,11 @@ app.options('*', (req, res) => {
 function sendResponse(res, status, message, data = null, error = null) {
     // Get the origin from the request
     const origin = res.req.headers.origin;
-    
+
     // Set CORS headers if origin is allowed
     if (origin && allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', [
             'Content-Type',
@@ -133,30 +194,99 @@ function sendResponse(res, status, message, data = null, error = null) {
     return res.status(status).json(response);
 }
 
+// Helper function to get token from request
+const getTokenFromRequest = (req) => {
+    // Check for token in cookies if cookies exist
+    if (req.cookies && req.cookies.auth_token) {
+        return req.cookies.auth_token;
+    }
+    
+    // Check Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        return authHeader.substring(7); // Remove 'Bearer ' prefix
+    }
+    
+    return null;
+};
+
 // Configure storage for uploaded files
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        if (!req.session.userId) {
-            cb(new Error('Not authenticated'));
-            return;
+    destination: async (req, file, cb) => {
+        try {
+            // Get token using helper function
+            const token = getTokenFromRequest(req);
+            
+            if (!token) {
+                console.log('No token found in request');
+                cb(new Error('Not authenticated'));
+                return;
+            }
+
+            try {
+                // Verify the token
+                const decoded = jwt.verify(token, JWT_SECRET);
+                console.log('Upload request from user:', decoded.username);
+
+                // Get user upload path
+                const uploadPath = path.join(__dirname, 'uploads', decoded.userId);
+                
+                // Create directory if it doesn't exist
+                fs.mkdirSync(uploadPath, { recursive: true });
+                
+                console.log('Upload path created:', uploadPath);
+                cb(null, uploadPath);
+            } catch (error) {
+                console.error('Token verification failed:', error);
+                cb(new Error('Invalid authentication token'));
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            cb(error);
         }
-        const uploadPath = userManager.getUserUploadPath(req.session.userId);
-        cb(null, uploadPath);
     },
     filename: (req, file, cb) => {
-        const ext = mime.extension(file.mimetype);
+        const ext = mime.extension(file.mimetype) || 'unknown';
         crypto.randomBytes(16, (err, raw) => {
-            cb(null, raw.toString('hex') + Date.now() + '.' + ext);
+            if (err) {
+                cb(err);
+                return;
+            }
+            const filename = raw.toString('hex') + Date.now() + '.' + ext;
+            console.log('Generated filename:', filename);
+            cb(null, filename);
         });
     }
 });
 
+// Create multer upload middleware with error handling
 const upload = multer({
     storage: storage,
     limits: {
         fileSize: 50 * 1024 * 1024 // 50MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        // Validate file types
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'video/mp4'];
+        if (!allowedTypes.includes(file.mimetype)) {
+            cb(new Error('Invalid file type'), false);
+            return;
+        }
+        cb(null, true);
     }
-});
+}).single('file');
+
+// Wrap multer middleware to handle errors properly
+const uploadMiddleware = (req, res, next) => {
+    upload(req, res, (err) => {
+        if (err) {
+            console.error('Upload middleware error:', err);
+            return sendResponse(res, 400, err.message);
+        }
+        next();
+    });
+};
+
 
 // SSL/TLS certificate configuration
 const certPath = '/etc/letsencrypt/live/11oclocktoast.com';
@@ -169,20 +299,70 @@ const credentials = {
 // Create HTTPS server with certificates
 const server = https.createServer(credentials, app);
 
-// Create WebSocket server instance
-const wss = new WebSocket.Server({ server, 
-    verifyClient: (info, callback) => {
-        console.log('Verifying client connection...');
-        sessionMiddleware(info.req, {}, () => {
-            const userId = info.req.session?.userId;
-            console.log(`Session userId: ${userId}`);
-            callback(true);
-        });
+// WebSocket server with detailed authentication logging
+const wss = new WebSocket.Server({ 
+    server,
+    verifyClient: async (info, callback) => {
+        console.log('WebSocket connection attempt...');
+        
+        try {
+            // Try getting token from cookies first
+            let token = null;
+            if (info.req.headers.cookie) {
+                const cookies = parseCookies(info.req.headers.cookie);
+                token = cookies.auth_token;
+            }
+
+            // Fallback to Authorization header if no cookie
+            if (!token && info.req.headers.authorization) {
+                token = info.req.headers.authorization.replace('Bearer ', '');
+            }
+
+            if (!token) {
+                console.log('No authentication token found');
+                callback(false, 401, 'No authentication token found');
+                return;
+            }
+
+            try {
+                const decoded = jwt.verify(token, JWT_SECRET);
+                console.log('Token verified successfully:', decoded);
+                
+                // Store user info in the request object
+                info.req.user = decoded;
+                
+                // This is crucial - we're storing the verified user data
+                info.req.verifiedUser = {
+                    userId: decoded.userId,
+                    username: decoded.username
+                };
+                
+                callback(true);
+            } catch (error) {
+                console.log('Token verification failed:', error.message);
+                callback(false, 401, 'Invalid token');
+            }
+        } catch (error) {
+            console.error('WebSocket authentication error:', error);
+            callback(false, 401, 'Authentication failed');
+        }
     }
 });
 
 // Store active connections and their usernames
 const clients = new Map();
+
+// Helper function to parse cookies
+function parseCookies(cookieHeader) {
+    const cookies = {};
+    if (cookieHeader) {
+        cookieHeader.split(';').forEach(cookie => {
+            const [name, value] = cookie.split('=').map(c => c.trim());
+            cookies[name] = value;
+        });
+    }
+    return cookies;
+}
 
 // Function to get list of online users
 function getOnlineUsers() {
@@ -273,177 +453,98 @@ function broadcast(message, sender) {
 }
 
 // Handle new WebSocket connections
-wss.on('connection', (ws, req) => {
-    const sessionId = req.session?.userId;
-    console.log(`Client connected [${sessionId}]`);
+wss.on('connection', async (ws, req) => {
+    const user = req.verifiedUser;
+    console.log('Client connected:', user);
 
-    if (!sessionId) {
-        ws.send(JSON.stringify({
-            type: 'system',
-            content: 'Please log in to join the chat.',
-            timestamp: new Date().toISOString()
-        }));
-        ws.close();
+    if (!user || !user.username) {
+        console.error('No user information available');
+        ws.close(1008, 'No user information');
         return;
     }
 
     try {
-        async () => {
-            const profile = await userManager.getUserProfile(sessionId);
-            clients.set(ws, profile.Login); // Use Login to match client expectations
+        // Add to clients map with verified username
+        clients.set(ws, user.username);
+        
+        console.log('Sending welcome message to:', user.username);
+        ws.send(JSON.stringify({
+            type: 'system',
+            content: 'Connected to chat server.',
+            timestamp: new Date().toISOString()
+        }));
 
-            ws.send(JSON.stringify({
-                type: 'system',
-                content: 'Connected to chat server.',
-                timestamp: new Date().toISOString()
-            }));
-        };
-    } catch (error) {
-        console.error('Error getting user profile:', error);
-        ws.close();
-    }
-    // Handle incoming messages
-    ws.on('message', (data) => {
-        try {
-            const message = JSON.parse(data);
+        // Load and send recent history
+        console.log('Loading recent history for:', user.username);
+        const recentHistory = chatHistory.getRecent();
+        console.log('Recent history count:', recentHistory.length);
+        
+        ws.send(JSON.stringify({
+            type: 'history',
+            content: recentHistory,
+            timestamp: new Date().toISOString()
+        }));
 
-            switch (message.type) {
-                case 'join':
-                    // Update the client's username
-                    clients.set(ws, message.username);
+        // Broadcast updated user list
+        broadcastUserList();
 
-                    // Send recent history to newly joined user
-                    const recentHistory = chatHistory.getRecent();
-                    ws.send(JSON.stringify({
-                        type: 'history',
-                        content: recentHistory,
-                        timestamp: new Date().toISOString()
-                    }));
-
-                    // Broadcast join notification
-                    const joinMessage = {
-                        type: 'system',
-                        content: `${message.username} has joined the chat`,
-                        timestamp: new Date().toISOString()
-                    };
-                    broadcast(joinMessage, ws);
-                    chatHistory.add(joinMessage);
-
-                    // Send welcome message
-                    ws.send(JSON.stringify({
-                        type: 'system',
-                        content: `Welcome, ${message.username}! Last ${recentHistory.length} messages have been loaded.`,
-                        timestamp: new Date().toISOString()
-                    }));
-
-                    broadcastUserList();
-
-                    break;
-                case 'status':
-                    const statusMessage = {
-                        type: 'system',
-                        messageType: 'status',
-                        username: message.username,
-                        content: message.content,
-                        timestamp: new Date().toISOString()
-                    };
-
-                    broadcast(statusMessage, ws);
-
-                    break;
-                case 'users':
-                     ws.send(JSON.stringify({
-                        type: 'users',
-                        content: getOnlineUsers(),
-                        timestamp: new Date().toISOString()
-                    }));
-                    break;
-                case 'chat':
-                    const username = clients.get(ws);
-                    if (!username) {
-                        ws.send(JSON.stringify({
-                            type: 'system',
-                            content: 'Please identify yourself before sending messages.',
+        // Message handler
+        ws.on('message', (data) => {
+            console.log('Raw message received:', data.toString());
+            
+            try {
+                const message = JSON.parse(data);
+                console.log('Parsed message:', message);
+                
+                // Always use the verified username
+                message.username = user.username;
+                
+                switch(message.type) {
+                    case 'chat':
+                        console.log('Processing chat message from:', user.username);
+                        const chatMessage = {
+                            type: 'chat',
+                            username: user.username,
+                            content: message.content,
                             timestamp: new Date().toISOString()
-                        }));
-                        return;
-                    }
-
-                    const chatMessage = {
-                        type: 'chat',
-                        messageType: message.messageType || 'text',
-                        username: username,
-                        content: message.content,
-                        timestamp: new Date().toISOString()
-                    };
-
-                    // For images, validate base64 data
-                    if (message.messageType === 'image') {
-                        if (!message.content.startsWith('data:image/')) {
-                            ws.send(JSON.stringify({
-                                type: 'system',
-                                content: 'Invalid image data',
-                                timestamp: new Date().toISOString()
-                            }));
-                            return;
-                        }
-                        // Optionally implement size limits here
-                        const base64Size = message.content.length * 0.75; // Approximate size in bytes
-                        if (base64Size > 5 * 1024 * 1024) { // 5MB limit
-                            ws.send(JSON.stringify({
-                                type: 'system',
-                                content: 'Image too large (max 5MB)',
-                                timestamp: new Date().toISOString()
-                            }));
-                            return;
-                        }
-                    }
-
-                    // Broadcast and log message
-                    broadcast(chatMessage, ws);
-                    ws.send(JSON.stringify(chatMessage)); // Send to sender
-                    chatHistory.add(chatMessage);
-                    break;
+                        };
+                        console.log('Broadcasting message:', chatMessage);
+                        broadcast(chatMessage, ws);
+                        ws.send(JSON.stringify(chatMessage));
+                        chatHistory.add(chatMessage);
+                        break;
+                        
+                    case 'status':
+                        console.log('Processing status message from:', user.username);
+                        const statusMessage = {
+                            type: 'system',
+                            messageType: 'status',
+                            username: user.username,
+                            content: message.content,
+                            timestamp: new Date().toISOString()
+                        };
+                        broadcast(statusMessage, ws);
+                        break;
+                        
+                    default:
+                        console.log('Unknown message type:', message.type);
+                }
+            } catch (error) {
+                console.error('Error processing message:', error);
             }
-        } catch (error) {
-            console.error('Error processing message:', error);
-            ws.send(JSON.stringify({
-                type: 'system',
-                content: 'Error processing message',
-                timestamp: new Date().toISOString()
-            }));
-        }
-    });
+        });
 
-    // Handle client disconnection
-    ws.on('close', () => {
-        const username = clients.get(ws);
-        if (username) {
-            const leaveMessage = {
-                type: 'system',
-                content: `${username} has left the chat`,
-                timestamp: new Date().toISOString()
-            };
-            broadcast(leaveMessage);
-            chatHistory.add(leaveMessage);
-
-            // Broadcast updated user list after disconnection
+        // Handle disconnection
+        ws.on('close', () => {
+            console.log(`Client disconnected: ${user.username}`);
             clients.delete(ws);
             broadcastUserList();
-        } else {
-            clients.delete(ws);
-        }
-        console.log('Client disconnected');
-    });
+        });
 
-    // Handle errors
-    ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
-        if (clients.has(ws)) {
-            clients.delete(ws);
-            broadcastUserList();
-        }
-    });
+    } catch (error) {
+        console.error('Error in connection handler:', error);
+        ws.close(1011, 'Internal Server Error');
+    }
 });
 
 // Periodic cleanup of dead connections
@@ -539,7 +640,6 @@ app.route('/api/login')
         res.status(204).end();
     })
     .post(async (req, res) => {
-        // Your existing login handler code
         try {
             const { username, password } = req.body;
             const isValid = await userManager.validateUser(username, password);
@@ -549,24 +649,48 @@ app.route('/api/login')
             }
 
             const profile = await userManager.getUserProfile(username);
-            req.session.userId = profile.id;
-            req.session.username = username;
+            // Generate JWT token
+            const token = jwt.sign(
+                { 
+                    userId: profile.id,
+                    username: username
+                },
+                JWT_SECRET,
+                { expiresIn: '30d' }
+            );
 
-            return sendResponse(res, 200, 'Login successful', { profile });
+            // Set cookie with proper options
+            res.cookie('auth_token', token, {
+                httpOnly: true,
+                secure: true,
+                sameSite: 'none',
+                path: '/',
+                maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+            });
+
+            console.log('Login successful for user:', username);
+            return sendResponse(res, 200, 'Login successful', { 
+                profile,
+                token
+            });
         } catch (error) {
+            console.error('Login error:', error);
             return sendResponse(res, 500, 'Login failed', null, error);
         }
     });
 
-app.get('/api/profile', async (req, res) => {
-    if (!req.session.userId) {
-        return sendResponse(res, 401, 'Not authenticated');
-    }
-
+app.get('/api/profile', verifyToken, async (req, res) => {
     try {
-        const profile = await userManager.getUserProfile(req.session.userId);
+        console.log('Profile request for user:', req.user.username);
+        const profile = await userManager.getUserProfile(req.user.username);
+        
+        if (!profile) {
+            return sendResponse(res, 404, 'Profile not found');
+        }
+
         return sendResponse(res, 200, 'Profile retrieved successfully', { profile });
     } catch (error) {
+        console.error('Profile retrieval error:', error);
         return sendResponse(res, 500, 'Failed to retrieve profile', null, error);
     }
 });
@@ -588,24 +712,63 @@ app.put('/api/profile', async (req, res) => {
     }
 });
 
-app.post('/upload', upload.single('file'), (req, res) => {
+// Handle preflight request for uploads
+app.options('/api/upload', (req, res) => {
+    const origin = req.headers.origin;
+    
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', [
+            'Content-Type',
+            'Authorization',
+            'X-Requested-With',
+            'Accept',
+            'Origin',
+            'Access-Control-Allow-Headers',
+            'Access-Control-Request-Headers',
+            'Access-Control-Allow-Origin'
+        ].join(', '));
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Expose-Headers', 'Set-Cookie');
+    }
+    
+    res.status(204).end();
+});
+
+// Update the upload endpoint with CORS support
+app.post('/api/upload', uploadMiddleware, (req, res) => {
+    // Set CORS headers
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+
     try {
         if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
+            return sendResponse(res, 400, 'No file uploaded');
         }
 
-        // Return file information
+        const fileUrl = `/uploads/${path.basename(req.file.path)}`;
+        console.log(`Saving to ${fileUrl}`);
         return sendResponse(res, 200, 'File uploaded successfully', {
             filename: req.file.filename,
             mimetype: req.file.mimetype,
             size: req.file.size,
-            url: `/uploads/${req.file.filename}`
+            url: fileUrl
         });
     } catch (error) {
-        console.error('Upload error:', error);
+        console.error('Upload handling error:', error);
         return sendResponse(res, 500, 'Upload failed', null, error);
     }
 });
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('auth_token');
+    return sendResponse(res, 200, 'Logged out successfully');
+});
+
 
 // Endpoint to get other users' profiles
 app.get('/api/userprofile', async (req, res) => {

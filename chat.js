@@ -2,32 +2,35 @@
 const workerCode = `
     let ws;
     let reconnectAttempts = 0;
+    let pingInterval;
     const MAX_RECONNECT_DELAY = 5000;
-
-    function connect(url, cookie) {
-        // Include the cookie in the WebSocket connection
-        const wsConfig = {
-            headers: {
-                Cookie: cookie
-            }
-        };
+    
+    function connect(url, cookie, headers) {
+        console.log('Worker attempting connection');
+        console.log('Using cookie:', cookie);
         
-        ws = new WebSocket(url, [], wsConfig);
+        ws = new WebSocket(url);
 
         ws.onopen = () => {
+            console.log('WebSocket connection opened');
             reconnectAttempts = 0;
             postMessage({ type: 'connected' });
         };
 
         ws.onmessage = (event) => {
-            postMessage({ type: 'message', data: JSON.parse(event.data) });
+            try {
+                console.log('Raw message received:', event.data);
+                const data = JSON.parse(event.data);
+                console.log('Parsed message:', data);
+                postMessage({ type: 'message', data });
+            } catch (error) {
+                console.error('Error processing message:', error);
+            }
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+            console.log('WebSocket connection closed:', event);
             postMessage({ type: 'disconnected' });
-            const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), MAX_RECONNECT_DELAY);
-            reconnectAttempts++;
-            setTimeout(() => connect(url, cookie), delay);
         };
 
         ws.onerror = (error) => {
@@ -38,14 +41,18 @@ const workerCode = `
 
     self.onmessage = (event) => {
         const { type, data } = event.data;
+        console.log('Worker received message:', type, data);
 
         switch(type) {
             case 'connect':
-                connect(data.url, data.cookie);
+                connect(data.url, data.cookie, data.headers);
                 break;
             case 'send':
                 if (ws && ws.readyState === WebSocket.OPEN) {
+                    console.log('Sending message:', data.message);
                     ws.send(JSON.stringify(data.message));
+                } else {
+                    console.error('WebSocket not ready. State:', ws?.readyState);
                 }
                 break;
         }
@@ -54,7 +61,39 @@ const workerCode = `
 (function() {
     const $ = str => document.querySelector(str);
     const $$ = str => document.querySelectorAll(str);
+    
+    const authFetch = async (url, options = {}) => {
+        const loginState = app.loadLoginState();
+        
+        // Initialize headers with existing ones or empty object
+        const headers = {
+            ...options.headers,
+            'Content-Type': 'application/json'
+        };
 
+        if (loginState?.token) {
+            headers['Authorization'] = `Bearer ${loginState.token}`;
+            console.log('Adding Authorization header:', headers['Authorization'].substring(0, 20) + '...');
+        } else {
+            console.log('No token available for request');
+        }
+
+        const fetchOptions = {
+            ...options,
+            headers,
+            credentials: 'include'
+        };
+
+        console.log('Fetch request:', {
+            url,
+            method: fetchOptions.method || 'GET',
+            headers: Object.keys(fetchOptions.headers)
+        });
+
+        return fetch(url, fetchOptions);
+    };
+
+   
     const app = {
         config: {
             verifyLogin: false,
@@ -73,58 +112,80 @@ const workerCode = `
         },
         worker: null,
         async init() {
-            if (app.config.verifyLogin) {
-                let resp = await fetch("/portal/api.php?type=loginProfile");
-                let profile = await resp.json();
-                console.log(`profile`);
-                console.dir(profile);
+            try {
+                // Initialize the worker first
+                await app.initializeWorker();
+                console.log('Worker initialized');
 
-                if (profile.status && profile.status === "error") {
-                    if (profile.redirect) {
-                        document.location.href = profile.redirect + "?url=/chat/index.html";
+                if (app.config.verifyLogin) {
+                    let resp = await fetch("/portal/api.php?type=loginProfile");
+                    let profile = await resp.json();
+                    console.log('Profile:', profile);
+
+                    if (profile.status && profile.status === "error") {
+                        if (profile.redirect) {
+                            document.location.href = profile.redirect + "?url=/chat/index.html";
+                        }
+                    }
+                    app.data.users[profile.Login] = profile;
+                    app.data.me = profile;
+                    app.data.Login = profile.Login;
+
+                    $('#usernameModal').style.display = 'none';
+                } else {
+                    let savedUsername = localStorage.getItem('chatUsername');
+                    if (savedUsername) {
+                        app.data.username = savedUsername;
                     }
                 }
-                app.data.users[profile.Login] = profile;
-                app.data.me = profile;
-                app.data.Login = profile.Login;
 
-                $('#usernameModal').style.display = 'none';
-            } else {
-                let savedUsername = localStorage.getItem('chatUsername');
-                if (savedUsername) {
-                    app.data.username = savedUsername;
-                }
-            }
-            const savedLogin = app.loadLoginState();
-            if (savedLogin) {
-                try {
-                    // Verify the session is still valid with the server
-                    const response = await fetch(`https://${app.config.server}:${app.config.port}/api/profile`, {
-                        credentials: 'include'
-                    });
-                    const result = await response.json();
-                    
-                    if (result.status === 'success') {
-                        app.data.me = result.profile;
-                        app.data.username = savedLogin.username;
+                const savedLogin = app.loadLoginState();
+                if (savedLogin) {
+                    try {
+                        // Verify the session is still valid with the server
+                        const response = await authFetch(`https://${app.config.server}:${app.config.port}/api/profile`, {
+                            credentials: 'include'
+                        });
+                        const result = await response.json();
 
-                        
-                        $('#usernameModal').style.display = 'none';
-                        app.connect();
-                        app.join(savedLogin.username);
-                    } else {
+                        if (result.status === 'success') {
+                            app.data.me = result.data.profile;
+                            app.data.username = savedLogin.username;
+
+                            $('#usernameModal').style.display = 'none';
+                            // Now we can safely connect
+                            app.connect();
+                            app.join(savedLogin.username);
+                        } else {
+                            app.clearLoginState();
+                            $('#usernameModal').style.display = 'flex';
+                            $('#usernameInput').focus();
+                        }
+                    } catch (error) {
+                        console.error('Error verifying login state:', error);
                         app.clearLoginState();
                         $('#usernameModal').style.display = 'flex';
+                        $('#usernameInput').focus();
                     }
-                } catch (error) {
-                    console.error('Error verifying login state:', error);
-                    app.clearLoginState();
+                } else {
                     $('#usernameModal').style.display = 'flex';
+                    $('#usernameInput').focus();
                 }
-            } else {
-                $('#usernameModal').style.display = 'flex';
-            }
 
+                $('#sendButton').addEventListener('click', () => app.sendMessage());
+                $('#messageInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') app.sendMessage();
+                });
+                $('#joinButton').addEventListener('click', (e) => { app.login(e) });
+                document.addEventListener('paste', (e) => app.handlePaste(e));
+
+                app.state.loaded = true;
+            } catch (error) {
+                console.error('Error during initialization:', error);
+            }
+        },
+
+        async initializeWorker() {
             // Create Web Worker from blob
             const blob = new Blob([workerCode], { type: 'application/javascript' });
             const workerUrl = URL.createObjectURL(blob);
@@ -152,18 +213,10 @@ const workerCode = `
                 }
             };
 
-            $('#sendButton').addEventListener('click', () => app.sendMessage());
-            $('#messageInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') app.sendMessage();
-            });
-            $('#joinButton').addEventListener('click', (e) => { app.login(e) });
-            document.addEventListener('paste', (e) => app.handlePaste(e));
-
-            // Initial connection
-            //app.connect();
-            //app.join(app.data.username);
-            app.state.loaded = true;
+            // Clean up the URL
+            URL.revokeObjectURL(workerUrl);
         },
+         
         async getSimpleProfile(user) {
             let resp = await fetch("https://dharristours.simpsf.com/portal/api.php?type=loginProfile");
             let profile = await resp.json();
@@ -213,20 +266,50 @@ const workerCode = `
             try {
                 const formData = new FormData();
                 formData.append('file', blob);
+
+                // Get the authentication token
+                const loginState = app.loadLoginState();
+                const token = loginState?.token;
+
+                if (!token) {
+                    throw new Error('Not authenticated');
+                }
+
+                console.log('Uploading file...');
                 
-                const response = await fetch(`https://${app.config.server}:${app.config.port}/api/upload?user=${app.data.username}`, {
+                const response = await fetch(`https://${app.config.server}:${app.config.port}/api/upload`, {
                     method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    credentials: 'include',
                     body: formData
                 });
-                
-                if (!response.ok) throw new Error('Upload failed');
-                
-                const fileInfo = await response.json();
-                
+
+                // Log response headers for debugging
+                console.log('Response headers:', {
+                    cors: response.headers.get('Access-Control-Allow-Origin'),
+                    contentType: response.headers.get('Content-Type')
+                });
+
+                const result = await response.json();
+                console.log('Upload response:', result);
+
+                if (!response.ok) {
+                    throw new Error(result.message || 'Upload failed');
+                }
+
+                if (result.status === 'error') {
+                    throw new Error(result.message || 'Upload failed');
+                }
+
+                console.log('File upload successful:', result);
+
                 // Send message with file information
-                if (app.data.connected && app.state.identified) {
+                if (app.data.connected) {
                     let messageContent;
-                    
+                    const fileInfo = result.data;
+
                     if (fileInfo.mimetype.startsWith('video/')) {
                         messageContent = `
                             <video controls width="100%" muted loop autoplay>
@@ -241,38 +324,40 @@ const workerCode = `
                             </div>
                         `;
                     } else {
-                        const iconUrl = `/img/mimetypes/${fileInfo.mimetype.replace('/', '-')}.png`;
-                        messageContent = `
-                            <div class="file-attachment">
-                                <img src="${iconUrl}" class="file-icon" alt="${fileInfo.mimetype}">
-                                <a href="${fileInfo.url}" target="_blank">${fileInfo.filename}</a>
-                                <span class="file-size">(${app.formatFileSize(fileInfo.size)})</span>
-                            </div>
-                        `;
-                    }
-                    
-                    const messageData = {
-                        type: 'chat',
-                        messageType: 'file',
-                        username: app.data.username,
-                        content: messageContent,
-                        fileInfo: {
-                            url: fileInfo.url,
-                            mimetype: fileInfo.mimetype,
-                            size: fileInfo.size
-                        },
-                        timestamp: new Date().toISOString()
-                    };
-                    
-                    app.worker.postMessage({
-                        type: 'send',
-                        data: { message: messageData }
-                    });
-                }
-            } catch (error) {
-                console.error('Error uploading file:', error);
+                    const iconUrl = `/img/mimetypes/${fileInfo.mimetype.replace('/', '-')}.png`;
+                messageContent = `
+                    <div class="file-attachment">
+                        <img src="${iconUrl}" class="file-icon" alt="${fileInfo.mimetype}">
+                        <a href="${fileInfo.url}" target="_blank">${fileInfo.filename}</a>
+                        <span class="file-size">(${app.formatFileSize(fileInfo.size)})</span>
+                    </div>
+                `;
             }
-        },
+
+            const messageData = {
+                type: 'chat',
+                messageType: 'file',
+                content: messageContent,
+                fileInfo: {
+                    url: fileInfo.url,
+                    mimetype: fileInfo.mimetype,
+                    size: fileInfo.size
+                },
+                timestamp: new Date().toISOString()
+            };
+
+            app.worker.postMessage({
+                type: 'send',
+                data: { message: messageData }
+            });
+        }
+    } catch (error) {
+        console.error('Error uploading file:', error);
+        $('#pasteIndicator').style.display = 'none';
+        alert('Failed to upload file: ' + error.message);
+    }
+}
+,
 
         formatFileSize(bytes) {
             const units = ['B', 'KB', 'MB', 'GB'];
@@ -378,13 +463,56 @@ const workerCode = `
             }
             return profile;
         },
-       connect() {
-           const cookie = document.cookie;
+        async validateToken() {
+            const loginState = app.loadLoginState();
+            if (!loginState?.token) return false;
+
+            try {
+                const response = await authFetch(`https://${app.config.server}:${app.config.port}/api/profile`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    // Update stored profile data
+                    app.data.me = result.data.profile;
+                    return true;
+                }
+                
+                return false;
+            } catch (error) {
+                console.error('Token validation error:', error);
+                return false;
+            }
+        },
+        connect() {
+            if (!app.worker) {
+                console.error('Worker not initialized');
+                return;
+            }
+
+            console.log('Connect function called');
+            const loginState = app.loadLoginState();
+            console.log('Login state:', loginState);
+            
+            const token = loginState?.token;
+            if (!token) {
+                console.error('No authentication token found');
+                return;
+            }
+
             app.worker.postMessage({
                 type: 'connect',
-                data: { url: 'wss://cdr2.com:3210', cookie: cookie }
+                data: { 
+                    url: `wss://${app.config.server}:${app.config.port}`,
+                    cookie: `auth_token=${token}`,
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                }
             });
+            
+            console.log('Connection message sent to worker');
         },
+
         updateConnectionStatus(status) {
             const statusDiv = $('#connectionStatus');
             statusDiv.textContent = '';
@@ -404,58 +532,59 @@ const workerCode = `
             });
             app.state.identified = true;
         },
-        async login(evt) {
-            evt.preventDefault();
-            const username = $("#usernameInput").value.trim();
-            const password = $("#passwordInput").value.trim();
+async login(evt) {
+    evt.preventDefault();
+    const username = $("#usernameInput").value.trim();
+    const password = $("#passwordInput").value.trim();
 
-            if (!username || !password) {
-                alert('Please enter both username and password');
-                return false;
-            }
+    if (!username || !password) {
+        alert('Please enter both username and password');
+        return false;
+    }
 
-            try {
-                const response = await fetch(`https://${app.config.server}:${app.config.port}/api/login`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    credentials: 'include',
-                    body: JSON.stringify({
-                        username: username,
-                        password: password
-                    })
-                });
+    try {
+        console.log('Attempting login...');
+        const response = await authFetch(`https://${app.config.server}:${app.config.port}/api/login`, {
+            method: 'POST',
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
 
-                const result = await response.json();
-                console.log('Login response:', result);
+        const result = await response.json();
+        console.log('Login response:', result);
 
-                if (result.status === 'success') {
-                    app.data.me = result.profile;
-                    app.data.username = username;
-                    
-                    // Save login state
-                    app.saveLoginState({
-                        username: username,
-                        profile: result.profile
-                    });
-                    
-                    $('#usernameModal').style.display = 'none';
-                    
-                    setTimeout(() => {
-                        app.connect();
-                        app.join(username);
-                    }, 100);
-                } else {
-                    alert(result.message || 'Login failed');
-                }
-            } catch (error) {
-                console.error('Login error:', error);
-                alert('Login failed: ' + (error.message || 'Unknown error'));
-            }
+        if (result.status === 'success') {
+            console.log('Login successful');
+            app.data.me = result.data.profile;
+            app.data.username = username;
 
-            return false;
-        },
+            // Save login state with token
+            app.saveLoginState({
+                username: username,
+                token: result.data.token,
+                profile: result.data.profile
+            });
+
+            $('#usernameModal').style.display = 'none';
+
+            // Wait a moment for cookie to be set
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            app.connect();
+            app.join(username);
+        } else {
+            console.log('Login failed:', result.message);
+            alert(result.message || 'Login failed');
+        }
+    } catch (error) {
+        console.error('Login error:', error);
+        alert('Login failed: ' + (error.message || 'Unknown error'));
+    }
+
+    return false;
+},
         async logout() {
             try {
                 // Call logout endpoint if you have one
@@ -570,7 +699,8 @@ const workerCode = `
             const input = $('#messageInput');
             const message = input.value.trim();
 
-            if (message && app.data.connected && app.state.identified) {
+            if (message && app.data.connected) {
+                console.log('Preparing to send message');
                 const messageData = {
                     type: 'chat',
                     username: app.data.username,
@@ -578,13 +708,16 @@ const workerCode = `
                     timestamp: new Date().toISOString()
                 };
 
+                console.log('Sending message to worker:', messageData);
                 app.worker.postMessage({
                     type: 'send',
                     data: { message: messageData }
                 });
 
                 input.value = '';
-            }
+            } else {
+                console.log('Message not sent. Connected:', app.data.connected);
+            }       
         },
         updateUserList(users) {
             const usersList = $('#usersList');
@@ -773,38 +906,79 @@ const workerCode = `
         saveLoginState(userData) {
             const loginState = {
                 username: userData.username,
+                token: userData.token,
                 timestamp: new Date().getTime(),
-                // Don't store sensitive data like passwords
                 profile: {
+                    id: userData.profile.id,
                     Login: userData.profile.Login,
-                    Picture: userData.profile.Picture,
-                    // Add other non-sensitive profile data as needed
+                    Picture: userData.profile.Picture
                 }
             };
 
+            // Save to localStorage
             localStorage.setItem('chatLoginState', JSON.stringify(loginState));
+            console.log('Login state saved:', loginState);
         },
         loadLoginState() {
-            const savedState = localStorage.getItem('chatLoginState');
-            if (!savedState) return null;
-
             try {
-                const loginState = JSON.parse(savedState);
-                const now = new Date().getTime();
-                // Check if the saved state is within 30 days
-                if (now - loginState.timestamp > 30 * 24 * 60 * 60 * 1000) {
-                    localStorage.removeItem('chatLoginState');
+                const savedState = localStorage.getItem('chatLoginState');
+                if (!savedState) {
+                    console.log('No saved login state found');
                     return null;
                 }
+
+                const loginState = JSON.parse(savedState);
+                const now = new Date().getTime();
+                
+                // Check if saved state is within 30 days
+                if (now - loginState.timestamp > 30 * 24 * 60 * 60 * 1000) {
+                    console.log('Login state expired');
+                    //localStorage.removeItem('chatLoginState');
+                    return null;
+                }
+
+                console.log('Loaded login state:', loginState);
                 return loginState;
-            } catch (e) {
-                console.error('Error loading login state:', e);
-                localStorage.removeItem('chatLoginState');
+            } catch (error) {
+                console.error('Error loading login state:', error);
+//                localStorage.removeItem('chatLoginState');
                 return null;
             }
         },
+async validateLoginState() {
+    console.log('Validating login state...');
+    const loginState = this.loadLoginState();
+    
+    if (!loginState?.token) {
+        console.log('No token found in login state');
+        return false;
+    }
+
+    try {
+        // Use authFetch instead of direct fetch
+        const response = await authFetch(`https://${app.config.server}:${app.config.port}/api/profile`);
+        const result = await response.json();
+        console.log('Profile validation result:', result);
+
+        if (result.status === 'success') {
+            app.data.me = result.data.profile;
+            app.data.username = loginState.username;
+            return true;
+        }
+        
+        console.log('Login state validation failed');
+        this.clearLoginState();
+        return false;
+    } catch (error) {
+        console.error('Error validating login state:', error);
+        this.clearLoginState();
+        return false;
+    }
+},
+
+
         clearLoginState() {
-            localStorage.removeItem('chatLoginState');
+            //localStorage.removeItem('chatLoginState');
         }
 
     };

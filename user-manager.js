@@ -63,6 +63,7 @@ class UserManager {
 
         // Create user directory
         const userDir = path.join(this.usersDir, user.id);
+        console.log(`userDir: ${userDir}`);
         await fs.mkdir(userDir, { recursive: true });
         await fs.mkdir(path.join(userDir, 'uploads'), { recursive: true });
 
